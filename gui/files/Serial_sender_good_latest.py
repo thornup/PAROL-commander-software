@@ -1,31 +1,20 @@
-from oclock import Timer, loop, interactiveloop
-import time, random, threading
+from oclock import Timer
+import threading
 import multiprocessing
 import serial
 import time
 import roboticstoolbox as rp
 import struct
 import logging
-import GUI_PAROL_latest
-import SIMULATOR_Robot
+from GUI import simulator
 import PAROL6_ROBOT 
 import numpy as np
 from spatialmath import *
 import platform
 import os
 import re
-import math
 from roboticstoolbox import trapezoidal
 from roboticstoolbox import quintic
-from spatialmath.base.argcheck import (
-    isvector,
-    getvector,
-    # assertmatrix,
-    getvector,
-    isscalar,
-)
-
-
 
 my_os = platform.system()
 if my_os == "Windows":
@@ -125,7 +114,7 @@ Program_length = 0
 Program_step = 0
 
 Robot_mode = "Dummy"
-# Task for sending data every x ms and performing all calculations, kinematics GUI control logic...
+# Task for sending data every x ms and performing all calculations, kinematics gui control logic...
 def Task1(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
@@ -1935,7 +1924,7 @@ def Task2(shared_string,Position_in,Speed_in,Homed_in,InOut_in,Temperature_error
 # ako trebam gledati vrijednosti koristi hex() funkciju
 
 # Dummy test task
-# Best used to show data that we get from the robot and data we get from GUI
+# Best used to show data that we get from the robot and data we get from gui
 def Task3(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
@@ -2015,7 +2004,7 @@ def Task3(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,In
 
         print("")
 
-        print("GUI DATA: ")
+        print("gui DATA: ")
         print("Joint jog buttons: ",end="")
         print(list(Joint_jog_buttons))
         print("Cart jog buttons: ",end="")
@@ -2634,7 +2623,7 @@ def GUI_process(shared_string,Position_out,Speed_out,Command_out,Affected_joint_
 
 
 def SIMULATOR_process(Position_out,Position_in,Position_Sim,Buttons):
-    SIMULATOR_Robot.GUI(Position_out,Position_in,Position_Sim,Buttons)
+    SIMULATOR_Robot.GUI(Position_out, Position_in, Position_Sim, Buttons)
 
 # u PROCES kao argumenti idu multi proc arrays tu dolje u initi
 # Gore u thredovima i funkcijama to nazovem kako oćem i pozivam stvari iz toga i tjt
@@ -2676,7 +2665,7 @@ if __name__ == '__main__':
     #ID,Position,speed,current,status,obj_detection
     Gripper_data_in = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False)  
 
-    # GUI control data
+    # gui control data
     Homed_out = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False) 
 
     #General robot vars

@@ -1357,7 +1357,7 @@ def GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOu
 
 
 
-    # This function periodically updates elements of the GUI that need to be updated
+    # This function periodically updates elements of the gui that need to be updated
     def Stuff_To_Update():
         
         #logging.debug("test")
@@ -1587,7 +1587,7 @@ if __name__ == "__main__":
     # From this data we will use: position, current, status 
     Gripper_data_in = [110,120,130,140,150,160]
 
-    # GUI control data
+    # gui control data
     Joint_jog_buttons = [0,0,0,0,0,0,0,0,0,0,0,0]
     Cart_jog_buttons = [0,0,0,0,0,0,0,0,0,0,0,0]
     # Speed slider, acc slider, WRF/TRF

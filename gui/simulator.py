@@ -45,7 +45,7 @@ customtkinter.set_appearance_mode("Dark")  # Modes: "System" (standard), "Dark",
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 
 
-def GUI(Position_out,Position_in,Position_Sim,Buttons):
+def run(Position_out,Position_in,Position_Sim,Buttons):
 
     def show_robot(var):
         #print(var)
