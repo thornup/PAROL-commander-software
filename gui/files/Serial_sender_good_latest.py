@@ -6,7 +6,7 @@ import time
 import roboticstoolbox as rp
 import struct
 import logging
-from GUI import simulator
+from gui import simulator
 import PAROL6_ROBOT 
 import numpy as np
 from spatialmath import *
@@ -114,7 +114,7 @@ Program_length = 0
 Program_step = 0
 
 Robot_mode = "Dummy"
-# Task for sending data every x ms and performing all calculations, kinematics gui control logic...
+# Task for sending data every x ms and performing all calculations, kinematics gui core logic...
 def Task1(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
          Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
          XTR_data,Gripper_data_in,
@@ -154,7 +154,7 @@ def Task1(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,In
             ######################################################
 
             
-            # JOINT JOG (regular speed control) 0x123 # -1 is value if nothing is pressed
+            # JOINT JOG (regular speed core) 0x123 # -1 is value if nothing is pressed
             if result_joint_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1: 
                 Robot_mode = "Joint jog"
                 Command_out.value = 123 
@@ -181,7 +181,7 @@ def Task1(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,In
            
             ######################################################
             ######################################################
-            # CART JOG (regular speed control but for multiple joints) 0x123 # -1 is value if nothing is pressed
+            # CART JOG (regular speed core but for multiple joints) 0x123 # -1 is value if nothing is pressed
             elif result_cart_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1: #
 
                 Command_out.value = 123
@@ -2616,14 +2616,14 @@ def GUI_process(shared_string,Position_out,Speed_out,Command_out,Affected_joint_
          XTR_data,Gripper_data_in,
         Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons):
 
-        GUI_PAROL_latest.GUI(shared_string,Position_out,Speed_out,Command_out,Affected_joint_out,InOut_out,Timeout_out,Gripper_data_out,
-         Position_in,Speed_in,Homed_in,InOut_in,Temperature_error_in,Position_error_in,Timeout_error,Timing_data_in,
-         XTR_data,Gripper_data_in,
-        Joint_jog_buttons,Cart_jog_buttons,Jog_control,General_data,Buttons)
+        GUI_PAROL_latest.run_gui(shared_string, Position_out, Speed_out, Command_out, Affected_joint_out, InOut_out, Timeout_out, Gripper_data_out,
+                                 Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in, Position_error_in, Timeout_error, Timing_data_in,
+                                 XTR_data, Gripper_data_in,
+                                 Joint_jog_buttons, Cart_jog_buttons, Jog_control, General_data, Buttons)
 
 
 def SIMULATOR_process(Position_out,Position_in,Position_Sim,Buttons):
-    SIMULATOR_Robot.GUI(Position_out, Position_in, Position_Sim, Buttons)
+    SIMULATOR_Robot.run_gui(Position_out, Position_in, Position_Sim, Buttons)
 
 # u PROCES kao argumenti idu multi proc arrays tu dolje u initi
 # Gore u thredovima i funkcijama to nazovem kako oćem i pozivam stvari iz toga i tjt
@@ -2665,7 +2665,7 @@ if __name__ == '__main__':
     #ID,Position,speed,current,status,obj_detection
     Gripper_data_in = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False)  
 
-    # gui control data
+    # gui core data
     Homed_out = multiprocessing.Array("i",[1,1,1,1,1,1], lock=False) 
 
     #General robot vars

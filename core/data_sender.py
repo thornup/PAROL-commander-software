@@ -1,19 +1,16 @@
-from oclock import Timer, loop, interactiveloop
-import time, random, threading
-import multiprocessing
-import serial
+from oclock import Timer
 import time
 import roboticstoolbox as rp
-import struct
 import logging
 import numpy as np
 from spatialmath import *
-import platform
-import os
 import re
-from control import common
-from control import robot_config
+import serial as ser
+from roboticstoolbox import trapezoidal
+from roboticstoolbox import quintic
 
+from config import robot_config
+from core.common import my_os, prev_speed, pack_data, image_path, INTERVAL_S
 
 # Check if there is element 1 in the list.
 # If yes return its index, if no element is 1 return -1
@@ -34,13 +31,13 @@ def extract_content_from_command(command):
     else:
         return None
 
-# Task for sending data every x ms and performing all calculations, kinematics gui control logic...
-def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_out, InOut_out, Timeout_out,
-          Gripper_data_out,
-          Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in, Position_error_in, Timeout_error,
-          Timing_data_in,
-          XTR_data, Gripper_data_in,
-          Joint_jog_buttons, Cart_jog_buttons, Jog_control, General_data, Buttons):
+# Task for sending data every x ms and performing all calculations, kinematics gui core logic...
+def send_data(shared_string, position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out,
+              gripper_data_out,
+              position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error,
+              timing_data_in,
+              xtr_data, gripper_data_in,
+              joint_jog_buttons, cart_jog_buttons, jog_control, general_data, buttons):
     timer = Timer(INTERVAL_S, warnings=False, precise=True)
     cnt = 0
 
@@ -49,14 +46,13 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
         if ser.is_open == True:
             logging.debug("Task 1 alive")
             logging.debug("Data that PC will send to the robot is: ")
-            # s = Pack_data_test()
             # This function packs data that we will send to the robot
-            s = Pack_data(Position_out, Speed_out, Command_out, Affected_joint_out, InOut_out, Timeout_out,
-                          Gripper_data_out)
+            s = pack_data(position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out,
+                          gripper_data_out)
 
             # Make sure if sending calib to gripper to send it only once
-            if (Gripper_data_out[4] == 1 or Gripper_data_out[4] == 2):
-                Gripper_data_out[4] = 0
+            if (gripper_data_out[4] == 1 or gripper_data_out[4] == 2):
+                gripper_data_out[4] = 0
 
             logging.debug(s)
             logging.debug("END of data sent to the ROBOT")
@@ -69,64 +65,64 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                 # This function packs data that we will send to the robot
 
             # Check if any of jog buttons is pressed
-            result_joint_jog = check_elements(list(Joint_jog_buttons))
-            result_cart_jog = check_elements(list(Cart_jog_buttons))
+            result_joint_jog = check_elements(list(joint_jog_buttons))
+            result_cart_jog = check_elements(list(cart_jog_buttons))
 
             ######################################################
             ######################################################
 
-            # JOINT JOG (regular speed control) 0x123 # -1 is value if nothing is pressed
-            if result_joint_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1:
-                Robot_mode = "Joint jog"
-                Command_out.value = 123
+            # JOINT JOG (regular speed core) 0x123 # -1 is value if nothing is pressed
+            if result_joint_jog != -1 and buttons[2] == 0 and in_out_in[4] == 1:
+                robot_mode = "Joint jog"
+                command_out.value = 123
                 # Set speed for all other joints to 0
                 for i in range(6):
-                    Speed_out[i] = 0
+                    speed_out[i] = 0
                     # ako je position in veći ili jednak nekom od limita disable tu stranu tipki
                 # Set speed for the clicked joint
-                if (result_joint_jog in [0, 1, 2, 3, 4, 5]):
-                    if Position_in[result_joint_jog] >= robot_config.Joint_limits_steps[result_joint_jog][1]:
+                if result_joint_jog in [0, 1, 2, 3, 4, 5]:
+                    if position_in[result_joint_jog] >= robot_config.Joint_limits_steps[result_joint_jog][1]:
                         shared_string.value = b'Error: Robot jog -> Position out of range'
                     else:
-                        Speed_out[result_joint_jog] = int(np.interp(Jog_control[0], [0, 100],
-                                                                    [robot_config.Joint_min_jog_speed[result_joint_jog],
-                                                                     robot_config.Joint_max_jog_speed[
+                        speed_out[result_joint_jog] = int(np.interp(jog_control[0], [0, 100],
+                                                                    [robot_config.joint_min_jog_speed[result_joint_jog],
+                                                                     robot_config.joint_max_jog_speed[
                                                                          result_joint_jog]]))
                         arr = bytes(str(result_joint_jog + 1), 'utf-8')
                         shared_string.value = b'Log: Joint  ' + arr + b'  jog  '
                 else:
-                    if Position_in[result_joint_jog - 6] <= robot_config.Joint_limits_steps[result_joint_jog - 6][0]:
+                    if position_in[result_joint_jog - 6] <= robot_config.Joint_limits_steps[result_joint_jog - 6][0]:
                         shared_string.value = b'Error: Robot jog -> Position out of range'
                     else:
-                        Speed_out[result_joint_jog - 6] = int(-1 * np.interp(Jog_control[0], [0, 100], [
-                            robot_config.Joint_min_jog_speed[result_joint_jog - 6],
-                            robot_config.Joint_max_jog_speed[result_joint_jog - 6]]))
+                        speed_out[result_joint_jog - 6] = int(-1 * np.interp(jog_control[0], [0, 100], [
+                            robot_config.joint_min_jog_speed[result_joint_jog - 6],
+                            robot_config.joint_max_jog_speed[result_joint_jog - 6]]))
                         arr = bytes(str(result_joint_jog - 6 + 1), 'utf-8')
                         shared_string.value = b'Log: Joint  ' + arr + b'  jog  '
 
                         ######################################################
             ######################################################
-            # CART JOG (regular speed control but for multiple joints) 0x123 # -1 is value if nothing is pressed
-            elif result_cart_jog != -1 and Buttons[2] == 0 and InOut_in[4] == 1:  #
+            # CART JOG (regular speed core but for multiple joints) 0x123 # -1 is value if nothing is pressed
+            elif result_cart_jog != -1 and buttons[2] == 0 and in_out_in[4] == 1:  #
 
-                Command_out.value = 123
+                command_out.value = 123
                 # Set speed for all other joints to 0
                 for i in range(6):
-                    Speed_out[i] = 0
+                    speed_out[i] = 0
                 # if moving in positive direction
-                q1 = np.array([robot_config.STEPS2RADS(Position_in[0], 0),
-                               robot_config.STEPS2RADS(Position_in[1], 1),
-                               robot_config.STEPS2RADS(Position_in[2], 2),
-                               robot_config.STEPS2RADS(Position_in[3], 3),
-                               robot_config.STEPS2RADS(Position_in[4], 4),
-                               robot_config.STEPS2RADS(Position_in[5], 5), ])
+                q1 = np.array([robot_config.STEPS2RADS(position_in[0], 0),
+                               robot_config.STEPS2RADS(position_in[1], 1),
+                               robot_config.STEPS2RADS(position_in[2], 2),
+                               robot_config.STEPS2RADS(position_in[3], 3),
+                               robot_config.STEPS2RADS(position_in[4], 4),
+                               robot_config.STEPS2RADS(position_in[5], 5), ])
                 T = robot_config.robot.fkine(q1)
 
-                temp_var = float(np.interp(Jog_control[0], [0, 100], [robot_config.Cartesian_linear_velocity_min_JOG,
-                                                                      robot_config.Cartesian_linear_velocity_max_JOG]))
-                temp_var_angular = float(np.interp(Jog_control[0], [0, 100],
-                                                   [robot_config.Cartesian_angular_velocity_min,
-                                                    robot_config.Cartesian_angular_velocity_max]))
+                temp_var = float(np.interp(jog_control[0], [0, 100], [robot_config.cartesian_linear_velocity_min_jog,
+                                                                      robot_config.cartesian_linear_velocity_max_jog]))
+                temp_var_angular = float(np.interp(jog_control[0], [0, 100],
+                                                   [robot_config.cartesian_angular_velocity_min,
+                                                    robot_config.cartesian_angular_velocity_max]))
 
                 speed_temp = temp_var  # Speed is 20mm/s = 0.02m/s
                 speed_temp_angular = temp_var_angular  # Speed is DEG/s
@@ -135,7 +131,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                 delta_s_angular = speed_temp_angular * INTERVAL_S  # displacement in degrees
 
                 # WRF jogging
-                if Jog_control[2] == 1:  # WRF jog
+                if jog_control[2] == 1:  # WRF jog
                     if result_cart_jog in [1, 3, 4, 10, 7, 8]:  # For positive directions 1,3,4.
                         if result_cart_jog == 4:  # Z+ direction
                             T.t[2] = T.t[2] + delta_s  # Add to the Z+ direction in WRF
@@ -271,19 +267,19 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                     # If solver gives error DISABLE ROBOT
                     if var.success:
-                        Speed_out[i] = int(robot_config.SPEED_RAD2STEP(temp_var[i], i))
-                        prev_speed[i] = Speed_out[i]
+                        speed_out[i] = int(robot_config.SPEED_RAD2STEP(temp_var[i], i))
+                        prev_speed[i] = speed_out[i]
                     else:
                         shared_string.value = b'Error: Inverse kinematics error '
                         # Command_out.value = 102
                         # Speed_out[i] = 0
                     # If any joint passed its position limit, disable robot
 
-                if Robot_mode != "Cartesian jog":
+                if robot_mode != "Cartesian jog":
                     for i in range(6):
-                        if abs(Speed_out[i]) >= 300000:
-                            Speed_out[i] = int(Speed_out[i] / 10000)
-                            arr = bytes(str(Speed_out[i]), 'utf-8')
+                        if abs(speed_out[i]) >= 300000:
+                            speed_out[i] = int(speed_out[i] / 10000)
+                            arr = bytes(str(speed_out[i]), 'utf-8')
                             arr2 = bytes(str(i + 1), 'utf-8')
                             shared_string.value = b'Error: Joint  ' + arr2 + b'  speed error in cart mode  ' + arr
 
@@ -291,12 +287,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                 else:
                     # If any joint starts moving faster than allowed DISABLE ROBOT
                     for i in range(6):
-                        if abs(Speed_out[i]) >= 300000:
-                            Command_out.value = 102
-                            arr = bytes(str(Speed_out[i]), 'utf-8')
+                        if abs(speed_out[i]) >= 300000:
+                            command_out.value = 102
+                            arr = bytes(str(speed_out[i]), 'utf-8')
                             arr2 = bytes(str(i + 1), 'utf-8')
                             shared_string.value = b'Error: Joint  ' + arr2 + b'  speed error in cart mode  ' + arr
-                Robot_mode = "Cartesian jog"
+                robot_mode = "Cartesian jog"
                 # Calculate every joint speed using var and q1
 
                 # commanded position = robot position
@@ -307,50 +303,50 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
 
 
-            elif Buttons[0] == 1:  # HOME COMMAND 0x100
-                Command_out.value = 100
-                Buttons[0] = 0
+            elif buttons[0] == 1:  # HOME COMMAND 0x100
+                command_out.value = 100
+                buttons[0] = 0
                 shared_string.value = b'Log: Robot homing'
 
 
-            elif Buttons[1] == 1:  # ENABLE COMMAND 0x101
-                Command_out.value = 101
-                Buttons[1] = 0
+            elif buttons[1] == 1:  # ENABLE COMMAND 0x101
+                command_out.value = 101
+                buttons[1] = 0
                 shared_string.value = b'Log: Robot enable'
 
-            elif Buttons[2] == 1 or InOut_in[4] == 0:  # DISABLE COMMAND 0x102
-                Robot_mode = "STOP"
-                Buttons[7] = 0  # program execution button
-                Command_out.value = 102
-                Buttons[2] = 0
+            elif buttons[2] == 1 or in_out_in[4] == 0:  # DISABLE COMMAND 0x102
+                robot_mode = "STOP"
+                buttons[7] = 0  # program execution button
+                command_out.value = 102
+                buttons[2] = 0
                 shared_string.value = b'Log: Robot disable; button or estop'
 
-            elif Buttons[3] == 1:  # CLEAR ERROR COMMAND 0x103
-                Command_out.value = 103
-                Buttons[3] = 0
+            elif buttons[3] == 1:  # CLEAR ERROR COMMAND 0x103
+                command_out.value = 103
+                buttons[3] = 0
                 shared_string.value = b'Log: Error clear'
 
-            elif Buttons[6] == 1:  # For testing accel motions?
-                Command_out.value = 69
+            elif buttons[6] == 1:  # For testing accel motions?
+                command_out.value = 69
 
 
             # Program execution
             ######################################################
             ######################################################
-            elif Buttons[7] == 1:  # For program execution
+            elif buttons[7] == 1:  # For program execution
 
-                if Robot_mode != "Program":
+                if robot_mode != "Program":
                     ik_error = 0  # If there is error in ik calculations
                     error_state = 0  # If 1 it is error state
                     program_len = 0  # Length of the program
                     Program_step = 1  # Start from 1 because begin is always index 0 and it does nothing
-                    Command_step = 0  # counter when stepping thru the command
-                    # Command_len = variable time / INTERVAL_S
-                    Command_len = 0  # Length of the command; usually in the commands it is in seconds but here it is in ticks of INTERVAL_S --> Command_len = variable time / INTERVAL_S
-                    VALID_COMMANDS = robot_config.Commands_list_true
+                    command_step = 0  # counter when stepping thru the command
+                    # command_len = variable time / INTERVAL_S
+                    command_len = 0  # Length of the command; usually in the commands it is in seconds but here it is in ticks of INTERVAL_S --> command_len = variable time / INTERVAL_S
+                    VALID_COMMANDS = robot_config.commands_list_true
 
                     # Open execute_script.txt
-                    text_file = open(Image_path + "/Programs/execute_script.txt", 'r')
+                    text_file = open(image_path + "/Programs/execute_script.txt", 'r')
                     code_string = text_file.readlines()
                     text_file.close()
 
@@ -400,14 +396,14 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                         shared_string.value = b'Log: program will try to run'
 
                     # Check if first and last commands are valid
-                Robot_mode = "Program"
+                robot_mode = "Program"
 
                 if error_state == 0:
                     if Program_step < program_len:
 
                         # Delay command
                         if clean_string[Program_step] == 'Delay()':
-                            if Command_step == 0:
+                            if command_step == 0:
                                 time1 = time.perf_counter()
                                 shared_string.value = b'Log: Delay() command'
                                 # Extract time from delay
@@ -417,29 +413,29 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     number_int = float(Time)
                                     # Check if the converted integer is greater than our interval
                                     if number_int > INTERVAL_S:
-                                        Command_len = int(number_int / (INTERVAL_S))
-                                        Command_out.value = 255  # Set dummy data
-                                        Command_step = Command_step + 1
-                                        # print(Command_len)
+                                        command_len = int(number_int / (INTERVAL_S))
+                                        command_out.value = 255  # Set dummy data
+                                        command_step = command_step + 1
+                                        # print(command_len)
                                     else:
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                         shared_string.value = b'Error: Invalid Delay() command'
                                 except ValueError:
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
                                     shared_string.value = b'Error: Invalid Delay() command'
-                            elif Command_step != Command_len:  #
-                                Command_step = Command_step + 1
-                                Command_out.value = 255  # Set dummy data
+                            elif command_step != command_len:  #
+                                command_step = command_step + 1
+                                command_out.value = 255  # Set dummy data
                             else:
                                 time2 = time.perf_counter()
-                                print(Command_step)
+                                print(command_step)
                                 print(time2 - time1)
-                                Command_step = 0
-                                Command_len = 0
+                                command_step = 0
+                                command_len = 0
                                 Program_step = Program_step + 1
-                                Command_out.value = 255  # Set dummy data
+                                command_out.value = 255  # Set dummy data
 
                         # Output command
                         elif clean_string[Program_step] == 'Output()':
@@ -455,12 +451,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     else:
                                         shared_string.value = b'Error: Invalid Output() command'
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                         # Give error
                                 except ValueError:
                                     shared_string.value = b'Error: Invalid Output() command'
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
                                 # Give error
 
                                 if x[1] == 'HIGH' or x[1] == 'LOW':
@@ -468,27 +464,27 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                 else:
                                     shared_string.value = b'Error: Invalid Output() command'
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
                                     # Give error
                                 if cond1 == 1 and cond2 == 1:
-                                    Command_out.value = 255  # Set dummy data
+                                    command_out.value = 255  # Set dummy data
                                     if int(x[0]) == 1:
                                         if x[1] == 'HIGH':
-                                            InOut_out[2] = 1
-                                            InOut_in[2] = 1
+                                            in_out_out[2] = 1
+                                            in_out_in[2] = 1
                                             logging.debug('Log: Output 1 HIGH')
                                         elif x[1] == 'LOW':
-                                            InOut_out[2] = 0
-                                            InOut_in[2] = 0
+                                            in_out_out[2] = 0
+                                            in_out_in[2] = 0
                                             logging.debug('Log: Output 1 LOW')
                                     if int(x[0]) == 2:
                                         if x[1] == 'HIGH':
-                                            InOut_out[3] = 1
-                                            InOut_in[3] = 1
+                                            in_out_out[3] = 1
+                                            in_out_in[3] = 1
                                             logging.debug('Log: Output 2 HIGH')
                                         elif x[1] == 'LOW':
-                                            InOut_out[3] = 0
-                                            InOut_in[3] = 0
+                                            in_out_out[3] = 0
+                                            in_out_in[3] = 0
                                             logging.debug('Log: Output 2 LOW')
 
                                     cond1 = 0
@@ -496,7 +492,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     Program_step = Program_step + 1
                             else:
                                 error_state = 1
-                                Buttons[7] = 0
+                                buttons[7] = 0
                                 shared_string.value = b'Error: Invalid Output() command'
 
 
@@ -508,7 +504,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                         # MoveJoint command
                         elif clean_string[Program_step] == 'MoveJoint()':
                             # This code will execute once per command call
-                            if Command_step == 0:
+                            if command_step == 0:
                                 time1 = time.perf_counter()
                                 # data_packet = "test(1,2,3,4,5,6,a=1,v=2,t=0,func,speed)"
 
@@ -530,7 +526,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                         except ValueError:
                                             print(f"Invalid number: {num_str}")
                                             error_state = 1
-                                            Buttons[7] = 0
+                                            buttons[7] = 0
                                             break
 
                                     v_value = float(groups[6]) if groups[6] is not None else None
@@ -540,12 +536,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     tracking = groups[10] if groups[10] is not None else None
 
                                     # initial pos and needed pos
-                                    initial_pos = np.array([robot_config.STEPS2RADS(Position_in[0], 0),
-                                                            robot_config.STEPS2RADS(Position_in[1], 1),
-                                                            robot_config.STEPS2RADS(Position_in[2], 2),
-                                                            robot_config.STEPS2RADS(Position_in[3], 3),
-                                                            robot_config.STEPS2RADS(Position_in[4], 4),
-                                                            robot_config.STEPS2RADS(Position_in[5], 5), ])
+                                    initial_pos = np.array([robot_config.STEPS2RADS(position_in[0], 0),
+                                                            robot_config.STEPS2RADS(position_in[1], 1),
+                                                            robot_config.STEPS2RADS(position_in[2], 2),
+                                                            robot_config.STEPS2RADS(position_in[3], 3),
+                                                            robot_config.STEPS2RADS(position_in[4], 4),
+                                                            robot_config.STEPS2RADS(position_in[5], 5), ])
 
                                     needed_pos = np.array([robot_config.DEG2RAD(numbers[0] + 0.0000001),
                                                            robot_config.DEG2RAD(numbers[1] + 0.0000001),
@@ -563,12 +559,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                     # Check if needed positions are in range
                                     for i in range(6):
-                                        if needed_pos[i] >= robot_config.Joint_limits_radian[i][1] or needed_pos[i] <= \
-                                                robot_config.Joint_limits_radian[i][0]:
+                                        if needed_pos[i] >= robot_config.joint_limits_radian[i][1] or needed_pos[i] <= \
+                                                robot_config.joint_limits_radian[i][0]:
                                             shared_string.value = b'Error: MoveJoint needed position out of range'
                                             # print(f"Joint is out of range: {i + 1}")
                                             error_state = 1
-                                            Buttons[7] = 0
+                                            buttons[7] = 0
                                             break
 
                                     # print(f"initial pos is : {initial_pos}")
@@ -577,23 +573,23 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     if additional_element is not None and additional_element not in ("trap", "poly"):
                                         # print("Invalid additional element:", additional_element)
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                     else:
                                         # If t is defined *ignore all other params, if func is defined use that func, else use poly
                                         if t_value != None and t_value > 0 and t_value != 0:
-                                            Command_len = int(t_value / INTERVAL_S)
-                                            Command_step = Command_step + 1
+                                            command_len = int(t_value / INTERVAL_S)
+                                            command_step = command_step + 1
                                             t2 = (np.arange(0, t_value, INTERVAL_S))
                                             timebase_defined = "t"
                                             # print(" t is not none")
 
                                             if additional_element == "poly" or additional_element == None:
-                                                qx2 = rp.tools.trajectory.jtraj(initial_pos, needed_pos, Command_len)
+                                                qx2 = rp.tools.trajectory.jtraj(initial_pos, needed_pos, command_len)
 
                                             elif additional_element == "trap":
 
                                                 qx2 = rp.tools.trajectory.mtraj(trapezoidal, initial_pos, needed_pos,
-                                                                                Command_len)
+                                                                                command_len)
 
 
                                         # if t is not defined; use v and a values, trapezoidal is used always
@@ -602,12 +598,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             if a_value > 100 or a_value < 0:
                                                 # print("error a_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MoveJoint() command acceleration setpoint out of range'
                                             if v_value > 100 or v_value < 0:
                                                 # print("error v_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MoveJoint() command velocity setpoint out of range'
 
                                             path_differences = np.abs(needed_pos - initial_pos)
@@ -621,8 +617,8 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             # print("needed positons in steps:",needed_pos_steps)
                                             # print("current positons in steps:")
                                             for i in range(6):
-                                                print(" positon is", Position_in[i])
-                                            matching_indexes = np.where(needed_pos_steps == Position_in)[0]
+                                                print(" positon is", position_in[i])
+                                            matching_indexes = np.where(needed_pos_steps == position_in)[0]
                                             # print("matching indexes are:",matching_indexes)
 
                                             # init arrays
@@ -634,17 +630,17 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.Joint_min_speed[max_path_index],
-                                                robot_config.Joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.Joint_min_acc,
-                                                                                          robot_config.Joint_max_acc]))
+                                                robot_config.joint_min_speed[max_path_index],
+                                                robot_config.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
+                                                                                          robot_config.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
                                             tacc = v_value_array[max_path_index] / a_value_real
                                             # print("tacc is:",tacc)
                                             total_t = abs(
-                                                needed_pos_steps[max_path_index] - Position_in[max_path_index]) / \
+                                                needed_pos_steps[max_path_index] - position_in[max_path_index]) / \
                                                       v_value_array[max_path_index] + tacc
                                             # print("total_t is:")
                                             # print(total_t)
@@ -656,34 +652,34 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                                 if i in matching_indexes:
                                                     # print("positions are the same. joint at index: " ,i)
                                                     continue
-                                                v_value_array[i] = abs(needed_pos_steps[i] - Position_in[i]) / (
+                                                v_value_array[i] = abs(needed_pos_steps[i] - position_in[i]) / (
                                                             total_t - tacc)
                                                 try:
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time, v_value_array[i])
                                                     # print("good trap profile was made for index",i)
                                                     # trap_calc[i].plot()
                                                 except:
                                                     # if needed and initial are not the same but path is really small use 1/3 acc, 1/3 cruise and 1/3 deac
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time)
                                                     # print("ERROR acc is too small or v is to big index is:",i)
 
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.Joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MoveJoint() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
-                                                    Buttons[7] = 0
+                                                    buttons[7] = 0
 
                                             # TODO make sure accel and speed values are in the range
                                             # First find what joint has largerst path to travel
                                             # Calculate the absolute difference between elements of a and b
 
-                                            Command_len = int(total_t / INTERVAL_S)
-                                            Command_step = Command_step + 1
+                                            command_len = int(total_t / INTERVAL_S)
+                                            command_step = command_step + 1
                                             timebase_defined = "v and a"
                                             # print("t is none, a and v are defined")
                                             # use calculations
@@ -703,7 +699,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             # print("index with max path is:",max_path_index)
 
                                             # find if any joint angles are the same. ignore those in calculations
-                                            matching_indexes = np.where(needed_pos_steps == Position_in)[0]
+                                            matching_indexes = np.where(needed_pos_steps == position_in)[0]
                                             # print("matching indexes are:",matching_indexes)
 
                                             # init arrays
@@ -715,17 +711,17 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.Joint_min_speed[max_path_index],
-                                                robot_config.Joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.Joint_min_acc,
-                                                                                          robot_config.Joint_max_acc]))
+                                                robot_config.joint_min_speed[max_path_index],
+                                                robot_config.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
+                                                                                          robot_config.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
                                             tacc = v_value_array[max_path_index] / a_value_real
                                             # print("tacc is:",tacc)
                                             total_t = abs(
-                                                needed_pos_steps[max_path_index] - Position_in[max_path_index]) / \
+                                                needed_pos_steps[max_path_index] - position_in[max_path_index]) / \
                                                       v_value_array[max_path_index] + tacc
                                             # print("total_t is:")
                                             # print(total_t)
@@ -737,34 +733,34 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                                 if i in matching_indexes:
                                                     # print("positions are the same. joint at index: " ,i)
                                                     continue
-                                                v_value_array[i] = abs(needed_pos_steps[i] - Position_in[i]) / (
+                                                v_value_array[i] = abs(needed_pos_steps[i] - position_in[i]) / (
                                                             total_t - tacc)
                                                 try:
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time, v_value_array[i])
                                                     # print("good trap profile was made for index",i)
                                                     # trap_calc[i].plot()
                                                 except:
                                                     # if needed and initial are not the same but path is really small use 1/3 acc, 1/3 cruise and 1/3 deac
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time)
                                                     # print("ERROR acc is too small or v is to big index is:",i)
 
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.Joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MoveJoint() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
-                                                    Buttons[7] = 0
+                                                    buttons[7] = 0
 
                                             # TODO make sure accel and speed values are in the range
                                             # First find what joint has largerst path to travel
                                             # Calculate the absolute difference between elements of a and b
 
-                                            Command_len = int(total_t / INTERVAL_S)
-                                            Command_step = Command_step + 1
+                                            command_len = int(total_t / INTERVAL_S)
+                                            command_step = command_step + 1
                                             timebase_defined = "None"
                                             print("Using conservative values")
                                             # use calculations
@@ -774,8 +770,8 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                         # Error state?
                                         else:
-                                            Command_len = 1000
-                                            Command_step = Command_step + 1
+                                            command_len = 1000
+                                            command_step = command_step + 1
                                             # flag error unknown state
                                             print("unknown state?")
 
@@ -791,64 +787,64 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                 else:
                                     shared_string.value = b'Error: Invalid MoveJoint() command'
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
 
-                            elif Command_step != Command_len:  #
+                            elif command_step != command_len:  #
 
                                 if timebase_defined == "t":
                                     for i in range(6):
 
                                         if additional_element == "trap":
-                                            Speed_out[i] = int(robot_config.SPEED_RAD2STEP(
-                                                qx2.qd[Command_step][i] / (t_value - INTERVAL_S), i)) * (
-                                                                       Command_len - 1)
-                                            Position_out[i] = int(robot_config.RAD2STEPS(qx2.q[Command_step][i], i))
+                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                                qx2.qd[command_step][i] / (t_value - INTERVAL_S), i)) * (
+                                                                       command_len - 1)
+                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
                                         elif additional_element == "poly" or additional_element == None:
-                                            Speed_out[i] = int(robot_config.SPEED_RAD2STEP(
-                                                qx2.qd[Command_step][i] / (t_value - INTERVAL_S), i))  # * 199
-                                            Position_out[i] = int(robot_config.RAD2STEPS(qx2.q[Command_step][i], i))
+                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                                qx2.qd[command_step][i] / (t_value - INTERVAL_S), i))  # * 199
+                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
 
                                 elif timebase_defined == "v and a" or timebase_defined == "None":
 
                                     for i in range(6):
                                         if i in matching_indexes:
-                                            Speed_out[i] = 0
-                                            Position_out[i] = Position_in[i]
+                                            speed_out[i] = 0
+                                            position_out[i] = position_in[i]
                                             continue
                                         try:
                                             temp_var_traj = trap_calc[i]
-                                            Speed_out[i] = int(temp_var_traj.qd[Command_step])
-                                            Position_out[i] = int(temp_var_traj.q[Command_step])
+                                            speed_out[i] = int(temp_var_traj.qd[command_step])
+                                            position_out[i] = int(temp_var_traj.q[command_step])
                                         except:
-                                            Speed_out[i] = 0
-                                            Position_out[i] = Position_in[i]
+                                            speed_out[i] = 0
+                                            position_out[i] = position_in[i]
                                             # print("ERROR acc is too small or v is to big index is:",i)
 
                                 # print(Speed_out[5])
                                 # print(Speed_out[0])
-                                Command_step = Command_step + 1
+                                command_step = command_step + 1
 
                                 if tracking == None:
-                                    Command_out.value = 156
+                                    command_out.value = 156
                                 elif tracking == "speed":
-                                    Command_out.value = 123
+                                    command_out.value = 123
                                 else:
-                                    Command_out.value = 255
+                                    command_out.value = 255
 
                             else:
                                 time2 = time.perf_counter()
-                                Command_out.value = 255  # Send command from last index
-                                print(Command_step)
+                                command_out.value = 255  # Send command from last index
+                                print(command_step)
                                 print(time2 - time1)
                                 print("MoveJoint done")
-                                Command_step = 0
-                                Command_len = 0
+                                command_step = 0
+                                command_len = 0
                                 Program_step = Program_step + 1
 
                         # Joint space move but with pose
                         elif clean_string[Program_step] == 'MovePose()':
                             # This code will execute once per command call
-                            if Command_step == 0:
+                            if command_step == 0:
                                 time1 = time.perf_counter()
                                 # data_packet = "test(1,2,3,4,5,6,a=1,v=2,t=0,func,speed)"
 
@@ -869,7 +865,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                         except ValueError:
                                             print(f"Invalid number: {num_str}")
                                             error_state = 1
-                                            Buttons[7] = 0
+                                            buttons[7] = 0
                                             break
 
                                     v_value = float(groups[6]) if groups[6] is not None else None
@@ -879,12 +875,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     tracking = groups[10] if groups[10] is not None else None
 
                                     # initial pos and needed pos
-                                    initial_pos = np.array([robot_config.STEPS2RADS(Position_in[0], 0),
-                                                            robot_config.STEPS2RADS(Position_in[1], 1),
-                                                            robot_config.STEPS2RADS(Position_in[2], 2),
-                                                            robot_config.STEPS2RADS(Position_in[3], 3),
-                                                            robot_config.STEPS2RADS(Position_in[4], 4),
-                                                            robot_config.STEPS2RADS(Position_in[5], 5), ])
+                                    initial_pos = np.array([robot_config.STEPS2RADS(position_in[0], 0),
+                                                            robot_config.STEPS2RADS(position_in[1], 1),
+                                                            robot_config.STEPS2RADS(position_in[2], 2),
+                                                            robot_config.STEPS2RADS(position_in[3], 3),
+                                                            robot_config.STEPS2RADS(position_in[4], 4),
+                                                            robot_config.STEPS2RADS(position_in[5], 5), ])
 
                                     R3 = SE3.RPY([numbers[3], numbers[4], numbers[5]], unit='deg', order='xyz')
                                     R3.t[0] = numbers[0] / 1000
@@ -892,7 +888,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     R3.t[2] = numbers[2] / 1000
 
                                     q_pose_move = robot_config.robot.ikine_LMS(R3,
-                                                                               q0=robot_config.Joints_standby_position_radian,
+                                                                               q0=robot_config.joints_standby_position_radian,
                                                                                ilimit=60)
                                     joint_angle_pose = np.array(
                                         [q_pose_move.q[0], q_pose_move.q[1], q_pose_move.q[2], q_pose_move.q[3],
@@ -914,12 +910,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                     # Check if needed positions are in range
                                     for i in range(6):
-                                        if needed_pos[i] >= robot_config.Joint_limits_radian[i][1] or needed_pos[i] <= \
-                                                robot_config.Joint_limits_radian[i][0]:
+                                        if needed_pos[i] >= robot_config.joint_limits_radian[i][1] or needed_pos[i] <= \
+                                                robot_config.joint_limits_radian[i][0]:
                                             shared_string.value = b'Error: MovePose needed joint position out of range'
                                             # print(f"Joint is out of range: {i + 1}")
                                             error_state = 1
-                                            Buttons[7] = 0
+                                            buttons[7] = 0
                                             break
 
                                     # print(f"initial pos is : {initial_pos}")
@@ -928,23 +924,23 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     if additional_element is not None and additional_element not in ("trap", "poly"):
                                         # print("Invalid additional element:", additional_element)
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                     else:
                                         # If t is defined *ignore all other params, if func is defined use that func, else use poly
                                         if t_value != None and t_value > 0 and t_value != 0:
-                                            Command_len = int(t_value / INTERVAL_S)
-                                            Command_step = Command_step + 1
+                                            command_len = int(t_value / INTERVAL_S)
+                                            command_step = command_step + 1
                                             t2 = (np.arange(0, t_value, INTERVAL_S))
                                             timebase_defined = "t"
                                             # print(" t is not none")
 
                                             if additional_element == "poly" or additional_element == None:
-                                                qx2 = rp.tools.trajectory.jtraj(initial_pos, needed_pos, Command_len)
+                                                qx2 = rp.tools.trajectory.jtraj(initial_pos, needed_pos, command_len)
 
                                             elif additional_element == "trap":
 
                                                 qx2 = rp.tools.trajectory.mtraj(trapezoidal, initial_pos, needed_pos,
-                                                                                Command_len)
+                                                                                command_len)
 
 
                                         # if t is not defined; use v and a values, trapezoidal is used always
@@ -953,12 +949,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             if a_value > 100 or a_value < 0:
                                                 # print("error a_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MovePose() command acceleration setpoint out of range'
                                             if v_value > 100 or v_value < 0:
                                                 # print("error v_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MovePose() command velocity setpoint out of range'
 
                                             path_differences = np.abs(needed_pos - initial_pos)
@@ -972,8 +968,8 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             # print("needed positons in steps:",needed_pos_steps)
                                             # print("current positons in steps:")
                                             for i in range(6):
-                                                print(" positon is", Position_in[i])
-                                            matching_indexes = np.where(needed_pos_steps == Position_in)[0]
+                                                print(" positon is", position_in[i])
+                                            matching_indexes = np.where(needed_pos_steps == position_in)[0]
                                             # print("matching indexes are:",matching_indexes)
 
                                             # init arrays
@@ -985,17 +981,17 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.Joint_min_speed[max_path_index],
-                                                robot_config.Joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.Joint_min_acc,
-                                                                                          robot_config.Joint_max_acc]))
+                                                robot_config.joint_min_speed[max_path_index],
+                                                robot_config.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
+                                                                                          robot_config.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
                                             tacc = v_value_array[max_path_index] / a_value_real
                                             # print("tacc is:",tacc)
                                             total_t = abs(
-                                                needed_pos_steps[max_path_index] - Position_in[max_path_index]) / \
+                                                needed_pos_steps[max_path_index] - position_in[max_path_index]) / \
                                                       v_value_array[max_path_index] + tacc
                                             # print("total_t is:")
                                             # print(total_t)
@@ -1007,34 +1003,34 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                                 if i in matching_indexes:
                                                     # print("positions are the same. joint at index: " ,i)
                                                     continue
-                                                v_value_array[i] = abs(needed_pos_steps[i] - Position_in[i]) / (
+                                                v_value_array[i] = abs(needed_pos_steps[i] - position_in[i]) / (
                                                             total_t - tacc)
                                                 try:
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time, v_value_array[i])
                                                     # print("good trap profile was made for index",i)
                                                     # trap_calc[i].plot()
                                                 except:
                                                     # if needed and initial are not the same but path is really small use 1/3 acc, 1/3 cruise and 1/3 deac
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time)
                                                     # print("ERROR acc is too small or v is to big index is:",i)
 
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.Joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MovePose() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
-                                                    Buttons[7] = 0
+                                                    buttons[7] = 0
 
                                             # TODO make sure accel and speed values are in the range
                                             # First find what joint has largerst path to travel
                                             # Calculate the absolute difference between elements of a and b
 
-                                            Command_len = int(total_t / INTERVAL_S)
-                                            Command_step = Command_step + 1
+                                            command_len = int(total_t / INTERVAL_S)
+                                            command_step = command_step + 1
                                             timebase_defined = "v and a"
                                             # print("t is none, a and v are defined")
                                             # use calculations
@@ -1053,7 +1049,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             # print("index with max path is:",max_path_index)
 
                                             # find if any joint angles are the same. ignore those in calculations
-                                            matching_indexes = np.where(needed_pos_steps == Position_in)[0]
+                                            matching_indexes = np.where(needed_pos_steps == position_in)[0]
                                             # print("matching indexes are:",matching_indexes)
 
                                             # init arrays
@@ -1065,17 +1061,17 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.Joint_min_speed[max_path_index],
-                                                robot_config.Joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.Joint_min_acc,
-                                                                                          robot_config.Joint_max_acc]))
+                                                robot_config.joint_min_speed[max_path_index],
+                                                robot_config.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
+                                                                                          robot_config.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
                                             tacc = v_value_array[max_path_index] / a_value_real
                                             # print("tacc is:",tacc)
                                             total_t = abs(
-                                                needed_pos_steps[max_path_index] - Position_in[max_path_index]) / \
+                                                needed_pos_steps[max_path_index] - position_in[max_path_index]) / \
                                                       v_value_array[max_path_index] + tacc
                                             # print("total_t is:")
                                             # print(total_t)
@@ -1087,34 +1083,34 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                                 if i in matching_indexes:
                                                     # print("positions are the same. joint at index: " ,i)
                                                     continue
-                                                v_value_array[i] = abs(needed_pos_steps[i] - Position_in[i]) / (
+                                                v_value_array[i] = abs(needed_pos_steps[i] - position_in[i]) / (
                                                             total_t - tacc)
                                                 try:
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time, v_value_array[i])
                                                     # print("good trap profile was made for index",i)
                                                     # trap_calc[i].plot()
                                                 except:
                                                     # if needed and initial are not the same but path is really small use 1/3 acc, 1/3 cruise and 1/3 deac
-                                                    trap_calc[i] = trapezoidal(Position_in[i], needed_pos_steps[i],
+                                                    trap_calc[i] = trapezoidal(position_in[i], needed_pos_steps[i],
                                                                                execution_time)
                                                     # print("ERROR acc is too small or v is to big index is:",i)
 
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.Joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MovePose() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
-                                                    Buttons[7] = 0
+                                                    buttons[7] = 0
 
                                             # TODO make sure accel and speed values are in the range
                                             # First find what joint has largerst path to travel
                                             # Calculate the absolute difference between elements of a and b
 
-                                            Command_len = int(total_t / INTERVAL_S)
-                                            Command_step = Command_step + 1
+                                            command_len = int(total_t / INTERVAL_S)
+                                            command_step = command_step + 1
                                             timebase_defined = "None"
                                             print("Using conservative values")
                                             # use calculations
@@ -1124,8 +1120,8 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                         # Error state?
                                         else:
-                                            Command_len = 1000
-                                            Command_step = Command_step + 1
+                                            command_len = 1000
+                                            command_step = command_step + 1
                                             # flag error unknown state
                                             print("unknown state?")
 
@@ -1141,65 +1137,65 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                 else:
                                     shared_string.value = b'Error: Invalid MovePose() command'
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
 
-                            elif Command_step != Command_len:  #
+                            elif command_step != command_len:  #
 
                                 if timebase_defined == "t":
                                     for i in range(6):
 
                                         if additional_element == "trap":
-                                            Speed_out[i] = int(robot_config.SPEED_RAD2STEP(
-                                                qx2.qd[Command_step][i] / (t_value - INTERVAL_S), i)) * (
-                                                                       Command_len - 1)
-                                            Position_out[i] = int(robot_config.RAD2STEPS(qx2.q[Command_step][i], i))
+                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                                qx2.qd[command_step][i] / (t_value - INTERVAL_S), i)) * (
+                                                                       command_len - 1)
+                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
                                         elif additional_element == "poly" or additional_element == None:
-                                            Speed_out[i] = int(robot_config.SPEED_RAD2STEP(
-                                                qx2.qd[Command_step][i] / (t_value - INTERVAL_S), i))  # * 199
-                                            Position_out[i] = int(robot_config.RAD2STEPS(qx2.q[Command_step][i], i))
+                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                                qx2.qd[command_step][i] / (t_value - INTERVAL_S), i))  # * 199
+                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
 
                                 elif timebase_defined == "v and a" or timebase_defined == "None":
 
                                     for i in range(6):
                                         if i in matching_indexes:
-                                            Speed_out[i] = 0
-                                            Position_out[i] = Position_in[i]
+                                            speed_out[i] = 0
+                                            position_out[i] = position_in[i]
                                             continue
                                         try:
                                             temp_var_traj = trap_calc[i]
-                                            Speed_out[i] = int(temp_var_traj.qd[Command_step])
-                                            Position_out[i] = int(temp_var_traj.q[Command_step])
+                                            speed_out[i] = int(temp_var_traj.qd[command_step])
+                                            position_out[i] = int(temp_var_traj.q[command_step])
                                         except:
-                                            Speed_out[i] = 0
-                                            Position_out[i] = Position_in[i]
+                                            speed_out[i] = 0
+                                            position_out[i] = position_in[i]
                                             # print("ERROR acc is too small or v is to big index is:",i)
 
                                 # print(Speed_out[5])
                                 # print(Speed_out[0])
-                                Command_step = Command_step + 1
+                                command_step = command_step + 1
 
                                 if tracking == None:
-                                    Command_out.value = 156
+                                    command_out.value = 156
                                 elif tracking == "speed":
-                                    Command_out.value = 123
+                                    command_out.value = 123
                                 else:
-                                    Command_out.value = 255
+                                    command_out.value = 255
 
                             else:
                                 time2 = time.perf_counter()
-                                Command_out.value = 255  # Send command from last index
-                                print(Command_step)
+                                command_out.value = 255  # Send command from last index
+                                print(command_step)
                                 print(time2 - time1)
                                 print("MovePose done")
-                                Command_step = 0
-                                Command_len = 0
+                                command_step = 0
+                                command_len = 0
                                 Program_step = Program_step + 1
 
 
                         # Move in cartesian space command
                         elif clean_string[Program_step] == 'MoveCart()':
                             # This code will execute once per command call
-                            if Command_step == 0:
+                            if command_step == 0:
                                 time1 = time.perf_counter()
                                 # data_packet = "test(1,2,3,4,5,6,a=1,v=2,t=0,func,speed)"
 
@@ -1220,7 +1216,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                         except ValueError:
                                             print(f"Invalid number: {num_str}")
                                             error_state = 1
-                                            Buttons[7] = 0
+                                            buttons[7] = 0
                                             break
 
                                     v_value = float(groups[6]) if groups[6] is not None else None
@@ -1231,12 +1227,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                     # joint positons we start from
                                     initial_joint_position = np.array(
-                                        [robot_config.STEPS2RADS(Position_in[0], 0) - 0.0001,
-                                         robot_config.STEPS2RADS(Position_in[1], 1) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[2], 2) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[3], 3) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[4], 4) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[5], 5) - 0.001, ])
+                                        [robot_config.STEPS2RADS(position_in[0], 0) - 0.0001,
+                                         robot_config.STEPS2RADS(position_in[1], 1) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[2], 2) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[3], 3) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[4], 4) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[5], 5) - 0.001, ])
                                     # current pose can be contructed from fkine of current joint positions
 
                                     Initial_pose = robot_config.robot.fkine(initial_joint_position)
@@ -1254,14 +1250,14 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     if additional_element is not None and additional_element not in ("trap", "poly"):
                                         # print("Invalid additional element:", additional_element)
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                     else:
 
                                         # NOTE done!
                                         # If t is defined *ignore all other params, if func is defined use that func, else use poly
                                         if t_value != None and t_value > 0 and t_value != 0:
 
-                                            Command_len = int(t_value / INTERVAL_S)
+                                            command_len = int(t_value / INTERVAL_S)
                                             # t_t = np.arange(0,t_value,INTERVAL_S)
                                             timebase_defined = "t"
 
@@ -1287,12 +1283,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             if a_value > 100 or a_value < 0:
                                                 # print("error a_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MovePose() command acceleration setpoint out of range'
                                             if v_value > 100 or v_value < 0:
                                                 # print("error v_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MovePose() command velocity setpoint out of range'
 
                                             # v_value_cart_real = (np.interp(v_value,[0,100],[robot_config.Cartesian_linear_velocity_min,robot_config.Cartesian_linear_velocity_max]))
@@ -1303,7 +1299,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             t_t_ = trapezoidal(0, 1, t_tt)
                                             t_t = t_t_.q
 
-                                            Command_len = int(t_value_s / INTERVAL_S)
+                                            command_len = int(t_value_s / INTERVAL_S)
                                             timebase_defined = "None"
                                             print("Using conservative values")
                                             # use calculations
@@ -1316,7 +1312,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             t_t_ = trapezoidal(0, 1, t_tt)
                                             t_t = t_t_.q
 
-                                            Command_len = int(t_value_s / INTERVAL_S)
+                                            command_len = int(t_value_s / INTERVAL_S)
                                             timebase_defined = "None"
                                             print("Using conservative values")
                                             # use calculations
@@ -1332,7 +1328,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     # Joint positons of the first matrix
                                     joint_positions[0] = initial_joint_position
 
-                                    Command_step = Command_step + 1
+                                    command_step = command_step + 1
 
                                     print("Numbers:", numbers)
                                     print("Value of 'v':", v_value)
@@ -1344,46 +1340,46 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                 else:
                                     shared_string.value = b'Error: Invalid MoveCart() command'
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
 
-                            elif Command_step != Command_len:  #
+                            elif command_step != command_len:  #
 
                                 if ik_error == 0:
                                     # Calculate joint positons from matrix crated by ctraj
-                                    temp[Command_step] = robot_config.robot.ikine_LMS(Ctraj_traj[Command_step],
+                                    temp[command_step] = robot_config.robot.ikine_LMS(Ctraj_traj[command_step],
                                                                                       q0=joint_positions[
-                                                                                          Command_step - 1], ilimit=60)
-                                    joint_positions[Command_step] = temp[Command_step][0]
+                                                                                          command_step - 1], ilimit=60)
+                                    joint_positions[command_step] = temp[command_step][0]
                                     # print("results")
-                                    # print(temp[Command_step])
-                                    # print(temp[Command_step].success)
-                                    if str(temp[Command_step].success) == 'False':
+                                    # print(temp[command_step])
+                                    # print(temp[command_step].success)
+                                    if str(temp[command_step].success) == 'False':
                                         print("i am false")
                                         shared_string.value = b'Error: MoveCart() IK error'
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                         ik_error = 1
 
                                     # Check if positons are in valid range
 
                                     # Calculate needed speed
                                     for i in range(6):
-                                        velocity_array[i] = (joint_positions[Command_step][i] -
-                                                             joint_positions[Command_step - 1][i]) / INTERVAL_S
+                                        velocity_array[i] = (joint_positions[command_step][i] -
+                                                             joint_positions[command_step - 1][i]) / INTERVAL_S
 
                                         # Set speeds and positions
                                     for i in range(6):
-                                        Position_out[i] = (
-                                            int(robot_config.RAD2STEPS(joint_positions[Command_step][i], i)))
-                                        Speed_out[i] = int(robot_config.SPEED_RAD2STEP(velocity_array[i], i))
+                                        position_out[i] = (
+                                            int(robot_config.RAD2STEPS(joint_positions[command_step][i], i)))
+                                        speed_out[i] = int(robot_config.SPEED_RAD2STEP(velocity_array[i], i))
 
-                                        # print("joint positons are:", joint_positions[Command_step])
+                                        # print("joint positons are:", joint_positions[command_step])
                                     if tracking == None:
-                                        Command_out.value = 156
+                                        command_out.value = 156
                                     elif tracking == "speed":
-                                        Command_out.value = 123
+                                        command_out.value = 123
                                     else:
-                                        Command_out.value = 255
+                                        command_out.value = 255
 
                                     # Check if positons are in valid range
 
@@ -1393,61 +1389,61 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                     for i in range(6):
                                         # if values are close to zero they flactuate a lot
-                                        if abs(joint_positions[Command_step][i]) <= zero_threshold and abs(
-                                                joint_positions[Command_step - 1][i]) <= zero_threshold:
+                                        if abs(joint_positions[command_step][i]) <= zero_threshold and abs(
+                                                joint_positions[command_step - 1][i]) <= zero_threshold:
                                             None
                                         # Check if the absolute difference between the absolute values of 'a' and 'b' is less than or equal to the threshold
                                         else:
-                                            if abs(abs(joint_positions[Command_step][i]) - abs(
-                                                    joint_positions[Command_step - 1][i])) <= threshold_value_flip:
+                                            if abs(abs(joint_positions[command_step][i]) - abs(
+                                                    joint_positions[command_step - 1][i])) <= threshold_value_flip:
                                                 # Check if 'a' and 'b' have opposite signs
-                                                if (joint_positions[Command_step][i] > 0 and
-                                                    joint_positions[Command_step - 1][i] < 0) or (
-                                                        joint_positions[Command_step][i] < 0 and
-                                                        joint_positions[Command_step - 1][i] > 0):
+                                                if (joint_positions[command_step][i] > 0 and
+                                                    joint_positions[command_step - 1][i] < 0) or (
+                                                        joint_positions[command_step][i] < 0 and
+                                                        joint_positions[command_step - 1][i] > 0):
                                                     shared_string.value = b'Error: MoveCart() sign of position flipped'
                                                     print("ik flip error in joint:", i)
                                                     error_state = 1
-                                                    Buttons[7] = 0
-                                                    Speed_out[i] = 0
-                                                    Command_out.value = 255
+                                                    buttons[7] = 0
+                                                    speed_out[i] = 0
+                                                    command_out.value = 255
 
-                                    Command_step = Command_step + 1
+                                    command_step = command_step + 1
 
                                     # check the speeds
 
                                     for i in range(6):
-                                        if abs(Speed_out[i] > robot_config.Joint_max_speed[i]):
+                                        if abs(speed_out[i] > robot_config.joint_max_speed[i]):
                                             shared_string.value = b'Error: MoveCart() speed is too big'
                                             print("error in joint:", i)
                                             error_state = 1
-                                            Buttons[7] = 0
-                                            Speed_out[i] = 0
-                                            Command_out.value = 255
+                                            buttons[7] = 0
+                                            speed_out[i] = 0
+                                            command_out.value = 255
 
 
                                 else:
                                     ik_error = 0
-                                    Command_step = 0
-                                    Command_len = 0
+                                    command_step = 0
+                                    command_len = 0
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
 
                             else:
                                 time2 = time.perf_counter()
-                                Command_out.value = 255  # Send command from last index
-                                print(Command_step)
+                                command_out.value = 255  # Send command from last index
+                                print(command_step)
                                 print(time2 - time1)
                                 print("MoveCart done")
-                                Command_step = 0
-                                Command_len = 0
+                                command_step = 0
+                                command_len = 0
                                 Program_step = Program_step + 1
 
 
                         # Move in cartesian space command
                         elif clean_string[Program_step] == 'MoveCartRelTRF()':
                             # This code will execute once per command call
-                            if Command_step == 0:
+                            if command_step == 0:
                                 time1 = time.perf_counter()
                                 # data_packet = "test(1,2,3,4,5,6,a=1,v=2,t=0,func,speed)"
 
@@ -1468,7 +1464,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                         except ValueError:
                                             print(f"Invalid number: {num_str}")
                                             error_state = 1
-                                            Buttons[7] = 0
+                                            buttons[7] = 0
                                             break
 
                                     v_value = float(groups[6]) if groups[6] is not None else None
@@ -1479,12 +1475,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                     # joint positons we start from
                                     initial_joint_position = np.array(
-                                        [robot_config.STEPS2RADS(Position_in[0], 0) - 0.0001,
-                                         robot_config.STEPS2RADS(Position_in[1], 1) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[2], 2) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[3], 3) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[4], 4) - 0.00015,
-                                         robot_config.STEPS2RADS(Position_in[5], 5) - 0.001, ])
+                                        [robot_config.STEPS2RADS(position_in[0], 0) - 0.0001,
+                                         robot_config.STEPS2RADS(position_in[1], 1) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[2], 2) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[3], 3) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[4], 4) - 0.00015,
+                                         robot_config.STEPS2RADS(position_in[5], 5) - 0.001, ])
                                     # current pose can be contructed from fkine of current joint positions
 
                                     Initial_pose = robot_config.robot.fkine(initial_joint_position)
@@ -1511,14 +1507,14 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     if additional_element is not None and additional_element not in ("trap", "poly"):
                                         # print("Invalid additional element:", additional_element)
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                     else:
 
                                         # NOTE done!
                                         # If t is defined *ignore all other params, if func is defined use that func, else use poly
                                         if t_value != None and t_value > 0 and t_value != 0:
 
-                                            Command_len = int(t_value / INTERVAL_S)
+                                            command_len = int(t_value / INTERVAL_S)
                                             # t_t = np.arange(0,t_value,INTERVAL_S)
                                             timebase_defined = "t"
 
@@ -1544,12 +1540,12 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             if a_value > 100 or a_value < 0:
                                                 # print("error a_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MoveCartRelTRF() command acceleration setpoint out of range'
                                             if v_value > 100 or v_value < 0:
                                                 # print("error v_value too small")
                                                 error_state = 1
-                                                Buttons[7] = 0
+                                                buttons[7] = 0
                                                 shared_string.value = b'Error: MoveCartRelTRF() command velocity setpoint out of range'
 
                                             # v_value_cart_real = (np.interp(v_value,[0,100],[robot_config.Cartesian_linear_velocity_min,robot_config.Cartesian_linear_velocity_max]))
@@ -1560,7 +1556,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             t_t_ = trapezoidal(0, 1, t_tt)
                                             t_t = t_t_.q
 
-                                            Command_len = int(t_value_s / INTERVAL_S)
+                                            command_len = int(t_value_s / INTERVAL_S)
                                             timebase_defined = "None"
                                             print("Using conservative values")
                                             # use calculations
@@ -1573,7 +1569,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                             t_t_ = trapezoidal(0, 1, t_tt)
                                             t_t = t_t_.q
 
-                                            Command_len = int(t_value_s / INTERVAL_S)
+                                            command_len = int(t_value_s / INTERVAL_S)
                                             timebase_defined = "None"
                                             print("Using conservative values")
                                             # use calculations
@@ -1589,7 +1585,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                     # Joint positons of the first matrix
                                     joint_positions[0] = initial_joint_position
 
-                                    Command_step = Command_step + 1
+                                    command_step = command_step + 1
 
                                     print("Numbers:", numbers)
                                     print("Value of 'v':", v_value)
@@ -1601,46 +1597,46 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                 else:
                                     shared_string.value = b'Error: Invalid MoveCartRelTRF() command'
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
 
-                            elif Command_step != Command_len:  #
+                            elif command_step != command_len:  #
 
                                 if ik_error == 0:
                                     # Calculate joint positons from matrix crated by ctraj
-                                    temp[Command_step] = robot_config.robot.ikine_LMS(Ctraj_traj[Command_step],
+                                    temp[command_step] = robot_config.robot.ikine_LMS(Ctraj_traj[command_step],
                                                                                       q0=joint_positions[
-                                                                                          Command_step - 1], ilimit=60)
-                                    joint_positions[Command_step] = temp[Command_step][0]
+                                                                                          command_step - 1], ilimit=60)
+                                    joint_positions[command_step] = temp[command_step][0]
                                     # print("results")
-                                    # print(temp[Command_step])
-                                    # print(temp[Command_step].success)
-                                    if str(temp[Command_step].success) == 'False':
+                                    # print(temp[command_step])
+                                    # print(temp[command_step].success)
+                                    if str(temp[command_step].success) == 'False':
                                         print("i am false")
                                         shared_string.value = b'Error: MoveCartRelTRF() IK error'
                                         error_state = 1
-                                        Buttons[7] = 0
+                                        buttons[7] = 0
                                         ik_error = 1
 
                                     # Check if positons are in valid range
 
                                     # Calculate needed speed
                                     for i in range(6):
-                                        velocity_array[i] = (joint_positions[Command_step][i] -
-                                                             joint_positions[Command_step - 1][i]) / INTERVAL_S
+                                        velocity_array[i] = (joint_positions[command_step][i] -
+                                                             joint_positions[command_step - 1][i]) / INTERVAL_S
 
                                         # Set speeds and positions
                                     for i in range(6):
-                                        Position_out[i] = (
-                                            int(robot_config.RAD2STEPS(joint_positions[Command_step][i], i)))
-                                        Speed_out[i] = int(robot_config.SPEED_RAD2STEP(velocity_array[i], i))
+                                        position_out[i] = (
+                                            int(robot_config.RAD2STEPS(joint_positions[command_step][i], i)))
+                                        speed_out[i] = int(robot_config.SPEED_RAD2STEP(velocity_array[i], i))
 
-                                        # print("joint positons are:", joint_positions[Command_step])
+                                        # print("joint positons are:", joint_positions[command_step])
                                     if tracking == None:
-                                        Command_out.value = 156
+                                        command_out.value = 156
                                     elif tracking == "speed":
-                                        Command_out.value = 123
+                                        command_out.value = 123
                                     else:
-                                        Command_out.value = 255
+                                        command_out.value = 255
 
                                     # Check if positons are in valid range
 
@@ -1650,55 +1646,55 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
 
                                     for i in range(6):
                                         # if values are close to zero they flactuate a lot
-                                        if abs(joint_positions[Command_step][i]) <= zero_threshold and abs(
-                                                joint_positions[Command_step - 1][i]) <= zero_threshold:
+                                        if abs(joint_positions[command_step][i]) <= zero_threshold and abs(
+                                                joint_positions[command_step - 1][i]) <= zero_threshold:
                                             None
                                         # Check if the absolute difference between the absolute values of 'a' and 'b' is less than or equal to the threshold
                                         else:
-                                            if abs(abs(joint_positions[Command_step][i]) - abs(
-                                                    joint_positions[Command_step - 1][i])) <= threshold_value_flip:
+                                            if abs(abs(joint_positions[command_step][i]) - abs(
+                                                    joint_positions[command_step - 1][i])) <= threshold_value_flip:
                                                 # Check if 'a' and 'b' have opposite signs
-                                                if (joint_positions[Command_step][i] > 0 and
-                                                    joint_positions[Command_step - 1][i] < 0) or (
-                                                        joint_positions[Command_step][i] < 0 and
-                                                        joint_positions[Command_step - 1][i] > 0):
+                                                if (joint_positions[command_step][i] > 0 and
+                                                    joint_positions[command_step - 1][i] < 0) or (
+                                                        joint_positions[command_step][i] < 0 and
+                                                        joint_positions[command_step - 1][i] > 0):
                                                     shared_string.value = b'Error: MoveCartRelTRF() sign of position flipped'
                                                     print("ik flip error in joint:", i)
                                                     error_state = 1
-                                                    Buttons[7] = 0
-                                                    Speed_out[i] = 0
-                                                    Command_out.value = 255
+                                                    buttons[7] = 0
+                                                    speed_out[i] = 0
+                                                    command_out.value = 255
 
-                                    Command_step = Command_step + 1
+                                    command_step = command_step + 1
 
                                     # check the speeds
 
                                     for i in range(6):
-                                        if abs(Speed_out[i] > robot_config.Joint_max_speed[i]):
+                                        if abs(speed_out[i] > robot_config.joint_max_speed[i]):
                                             shared_string.value = b'Error: MoveCartRelTRF() speed is too big'
                                             print("error in joint:", i)
-                                            print("command step is", Command_step)
+                                            print("command step is", command_step)
                                             error_state = 1
-                                            Buttons[7] = 0
-                                            Speed_out[i] = 0
-                                            Command_out.value = 255
+                                            buttons[7] = 0
+                                            speed_out[i] = 0
+                                            command_out.value = 255
 
 
                                 else:
                                     ik_error = 0
-                                    Command_step = 0
-                                    Command_len = 0
+                                    command_step = 0
+                                    command_len = 0
                                     error_state = 1
-                                    Buttons[7] = 0
+                                    buttons[7] = 0
 
                             else:
                                 time2 = time.perf_counter()
-                                Command_out.value = 255  # Send command from last index
-                                print(Command_step)
+                                command_out.value = 255  # Send command from last index
+                                print(command_step)
                                 print(time2 - time1)
                                 print("MoveCart done")
-                                Command_step = 0
-                                Command_len = 0
+                                command_step = 0
+                                command_len = 0
                                 Program_step = Program_step + 1
 
 
@@ -1708,15 +1704,15 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                         # Dummy command (used for testing)
                         elif clean_string[Program_step] == 'Dummy()':
                             logging.debug('Log: Dummy() command')
-                            Command_out.value = 255  # Set dummy data
+                            command_out.value = 255  # Set dummy data
                             Program_step = Program_step + 1
 
                         # End command
                         elif clean_string[Program_step] == 'End()':
                             logging.debug('Log: End() command')
                             Program_step = 1
-                            Robot_mode = "Dummy"
-                            Buttons[7] = 0
+                            robot_mode = "Dummy"
+                            buttons[7] = 0
 
 
                         # Gripper command
@@ -1732,9 +1728,9 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                                 if (
                                         match_1 >= 0 and match_1 <= 255 and match_2 >= 0 and match_2 <= 255 and match_3 >= 100 and match_3 <= 1000):
                                     shared_string.value = b'Log: Gripper() command'
-                                    Gripper_data_out[0] = match_1
-                                    Gripper_data_out[1] = match_2
-                                    Gripper_data_out[2] = match_3
+                                    gripper_data_out[0] = match_1
+                                    gripper_data_out[1] = match_2
+                                    gripper_data_out[2] = match_3
                                 else:
                                     shared_string.value = b'Log: Error: Gripper() invalid input value'
                             else:
@@ -1749,7 +1745,7 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
                         elif clean_string[Program_step] == 'Gripper_cal()':
                             logging.debug('Log: Gripper_cal() command')
                             shared_string.value = b'Log: Gripper calibration command'
-                            Gripper_data_out[4] = 1
+                            gripper_data_out[4] = 1
                             Program_step = Program_step + 1
                             # Robot_mode = "Dummy"
                             # Buttons[7] = 0
@@ -1762,8 +1758,8 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
             ######################################################
             ######################################################
             else:  # If nothing else is done send dummy data 0x255
-                Robot_mode = "Dummy"
-                dummy_data(Position_out, Speed_out, Command_out, Position_in)
+                robot_mode = "Dummy"
+                dummy_data(position_out, speed_out, command_out, position_in)
 
             # Provjere
             # Svaka move funkciaj će imati svoje provjere!
@@ -1776,9 +1772,9 @@ def Task1(shared_string, Position_out, Speed_out, Command_out, Affected_joint_ou
             try:
 
                 if my_os == 'Linux':
-                    com_port = '/dev/ttyACM' + str(General_data[0])
+                    com_port = '/dev/ttyACM' + str(general_data[0])
                 elif my_os == 'Windows':
-                    com_port = 'COM' + str(General_data[0])
+                    com_port = 'COM' + str(general_data[0])
 
                 print(com_port)
                 ser.port = com_port

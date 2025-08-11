@@ -19,7 +19,7 @@ import matplotlib.animation as animation
 from s_visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
-import PAROL6_ROBOT
+import config.robot_config as config
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
@@ -45,7 +45,7 @@ customtkinter.set_appearance_mode("Dark")  # Modes: "System" (standard), "Dark",
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 
 
-def run(Position_out,Position_in,Position_Sim,Buttons):
+def run_sim(Position_out, Position_in, Position_Sim, Buttons):
 
     def show_robot(var):
         #print(var)
@@ -53,24 +53,24 @@ def run(Position_out,Position_in,Position_Sim,Buttons):
         y = random.random()
         z = random.random()
         theta = np.array([y, z, -0.25 * pi, 0., x, 0.])
-        theta = np.array([PAROL6_ROBOT.STEPS2RADS(Position_in[0],0),PAROL6_ROBOT.STEPS2RADS(Position_in[1],1),
-                          PAROL6_ROBOT.STEPS2RADS(Position_in[2],2),PAROL6_ROBOT.STEPS2RADS(Position_in[3],3),
-                          PAROL6_ROBOT.STEPS2RADS(Position_in[4],4),PAROL6_ROBOT.STEPS2RADS(Position_in[5],5)])
+        theta = np.array([config.STEPS2RADS(Position_in[0],0),config.STEPS2RADS(Position_in[1],1),
+                          config.STEPS2RADS(Position_in[2],2),config.STEPS2RADS(Position_in[3],3),
+                          config.STEPS2RADS(Position_in[4],4),config.STEPS2RADS(Position_in[5],5)])
         
         #theta = np.array([0, -pi/2, pi, 0., 0, pi])
         f = robot.forward(theta)      
         robot.draw()
 
     scale_factor = 2.5
-    a1 = PAROL6_ROBOT.a1 * scale_factor
-    a2 = PAROL6_ROBOT.a2 * scale_factor
-    a3 = PAROL6_ROBOT.a3 * scale_factor
-    a4 = PAROL6_ROBOT.a4 * scale_factor
-    a5 = PAROL6_ROBOT.a5 * scale_factor
-    a6 = PAROL6_ROBOT.a6 * scale_factor
-    a7 = PAROL6_ROBOT.a7 * scale_factor
+    a1 = config.a1 * scale_factor
+    a2 = config.a2 * scale_factor
+    a3 = config.a3 * scale_factor
+    a4 = config.a4 * scale_factor
+    a5 = config.a5 * scale_factor
+    a6 = config.a6 * scale_factor
+    a7 = config.a7 * scale_factor
 
-    alpha_DH = PAROL6_ROBOT.alpha_DH
+    alpha_DH = config.alpha_DH
 
 
     dh_params = np.array([[a1, a2, alpha_DH[0], 0.],
@@ -166,4 +166,4 @@ if __name__ == "__main__":
     Position_Sim = [1,2,3,4,5,6]
     # Home,Enable,Disable,Clear error,Real_robot,Sim_robot
     Buttons =  [0,0,0,0,1,1]
-    GUI(Position_out,Position_in,Position_Sim,Buttons)
+    run_gui(Position_out,Position_in,Position_Sim,Buttons)

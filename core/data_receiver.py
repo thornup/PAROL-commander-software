@@ -1,9 +1,36 @@
-# Task that receives data and saves to the multi proc array
-def Task2(shared_string, Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in, Position_error_in,
-          Timeout_error, Timing_data_in,
-          XTR_data, Gripper_data_in, General_data):
-    while 1:
+import threading
+import multiprocessing
+import serial
+import time
+from spatialmath import *
+import platform
+import os
+import re
+from oclock import Timer, loop, interactiveloop
+import numpy as np
+import math, random
+import roboticstoolbox as rp
+from roboticstoolbox import trapezoidal
+from roboticstoolbox import quintic
+from spatialmath.base.argcheck import (
+    isvector,
+    getvector,
+    # assertmatrix,
+    getvector,
+    isscalar,
+)
+import struct
+import logging
+import serial as ser
 
+from core.common import get_data
+
+
+# Task that receives data and saves to the multi proc array
+def receive_data(shared_string, position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in,
+                 timeout_error, timing_data_in,
+                 xtr_data, gripper_data_in, general_data):
+    while True:
         #  PYTHON
         # https://pyserial.readthedocs.io/en/latest/pyserial_api.html#serial.Serial.in_waiting
         # https://stackoverflow.com/questions/17553543/pyserial-non-blocking-read-loop
@@ -29,19 +56,21 @@ def Task2(shared_string, Position_in, Speed_in, Homed_in, InOut_in, Temperature_
         # javiti će to makar je tamo while petlja. ako bi bila if petlja onda bi očitao jedan i radio ostatak koda
         # pa se vratio pročitao jedan itd. tako bi možda pre sporo primali serial ako bi ostatak koda bio spor
         try:
-            Get_data(Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in, Position_error_in, Timeout_error,
-                     Timing_data_in,
-                     XTR_data, Gripper_data_in)
-            # Get_data_old()
+            # ToDo: check if this should get data_buffer
+            get_data(position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error,
+                     timing_data_in,
+                     xtr_data, gripper_data_in)
         except:
             try:
+                my_os = platform.system()
+                if my_os == "Windows":
+                    com_port = 'COM' + str(general_data[0])
+                    logging.debug("Os is Windows")
+                else:
+                    com_port = '/dev/ttyACM' + str(general_data[0])
+                    logging.debug("Os is Linux")
 
-                if my_os == 'Linux':
-                    com_port = '/dev/ttyACM' + str(General_data[0])
-                elif my_os == 'Windows':
-                    com_port = 'COM' + str(General_data[0])
 
-                print(com_port)
                 ser.port = com_port
                 ser.baudrate = 3000000
                 ser.close()
