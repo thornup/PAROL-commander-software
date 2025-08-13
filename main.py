@@ -10,30 +10,12 @@ from gui.gui import run_gui
 from gui.simulator import run_sim
 from core.main import main
 from io_data import *
-
-platform = platform.system()
+from core.common import get_platform_serial, platform
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
 )
 
-if platform == "Windows":
-    logging.debug("Os is Windows")
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
-    STARTING_PORT = 3 # COM3
-    try:
-        ser = serial.Serial(port='COM' + str(STARTING_PORT), baudrate=3000000, timeout=0)
-    except:
-        ser = serial.Serial()
-
-else: 
-    logging.debug("Os is Linux")
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
-    STARTING_PORT = 0
-    try:
-        ser = serial.Serial(port='/dev/ttyACM' + str(STARTING_PORT), baudrate=3000000, timeout=0)
-    except:
-        ser = serial.Serial()
 logging.disable(logging.DEBUG)
 
 
@@ -44,26 +26,27 @@ logging.disable(logging.DEBUG)
 if __name__ == '__main__':
 
     print("Running")
-    time.sleep(0.01) 
+    time.sleep(0.01)
 
     try:
-        ser.close()
+        platform_serial = get_platform_serial()
+        platform_serial.close()
     except:
         None
 
     # Process
-    core_process = multiprocessing.Process(target=main, args=[shared_string, Position_out, Speed_out, Command_out, Affected_joint_out, InOut_out, Timeout_out, Gripper_data_out,
-                                                              Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in, Position_error_in, Timeout_error, Timing_data_in,
-                                                              XTR_data, Gripper_data_in,
-                                                              Joint_jog_buttons, Cart_jog_buttons, Jog_control, General_data, Buttons, ])
+    core_process = multiprocessing.Process(target=main, args=[shared_string, position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out, gripper_data_out,
+                                                              Position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error, timing_data_in,
+                                                              xtr_data, gripper_data_in,
+                                                              joint_jog_buttons, cart_jog_buttons, jog_control, general_data, buttons, ])
     
-    gui_process = multiprocessing.Process(target=run_gui, args=[shared_string, Position_out, Speed_out, Command_out, Affected_joint_out, InOut_out, Timeout_out, Gripper_data_out,
-                                                                Position_in, Speed_in, Homed_in, InOut_in, Temperature_error_in, Position_error_in, Timeout_error, Timing_data_in,
-                                                                XTR_data, Gripper_data_in,
-                                                                Joint_jog_buttons, Cart_jog_buttons, Jog_control, General_data, Buttons, ])
+    gui_process = multiprocessing.Process(target=run_gui, args=[shared_string, position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out, gripper_data_out,
+                                                                Position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error, timing_data_in,
+                                                                xtr_data, gripper_data_in,
+                                                                joint_jog_buttons, cart_jog_buttons, jog_control, general_data, buttons, ])
 
     sim_process = multiprocessing.Process(target=run_sim, args =[Position_out, Position_in, Position_Sim, Buttons])
-   # process3 = multiprocessing.Process(target=SIMULATOR_process(),args =[Position_out,Position_in,Position_Sim,Buttons])
+   process3 = multiprocessing.Process(target=SIMULATOR_process(),args =[Position_out,Position_in,Position_Sim,Buttons])
 
 
     core_process.start()

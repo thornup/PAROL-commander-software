@@ -5,12 +5,15 @@ import logging
 import numpy as np
 from spatialmath import *
 import re
-import serial as ser
+from core.common import get_platform_serial
+
 from roboticstoolbox import trapezoidal
 from roboticstoolbox import quintic
 
 from config import robot_config
-from core.common import my_os, prev_speed, pack_data, image_path, INTERVAL_S
+import core.step_operations as step_ops
+import core.byte_operations as byte_ops
+from core.common import platform, prev_speed, pack_data, image_path, INTERVAL_S
 
 # Check if there is element 1 in the list.
 # If yes return its index, if no element is 1 return -1
@@ -42,26 +45,24 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
     cnt = 0
 
     while timer.elapsed_time < 110000:
-
-        if ser.is_open == True:
-            logging.debug("Task 1 alive")
-            logging.debug("Data that PC will send to the robot is: ")
+        platform_serial = get_platform_serial()
+        if platform_serial.is_open:
+            logging.debug("[sender] start")
             # This function packs data that we will send to the robot
             s = pack_data(position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out,
                           gripper_data_out)
-
+            logging.debug(f"[sender] data: {s}")
             # Make sure if sending calib to gripper to send it only once
             if (gripper_data_out[4] == 1 or gripper_data_out[4] == 2):
                 gripper_data_out[4] = 0
 
-            logging.debug(s)
-            logging.debug("END of data sent to the ROBOT")
+
             len_ = len(s)
             try:
                 for i in range(len_):
                     ser.write(s[i])
             except:
-                logging.debug("NO SERIAL TASK1")
+                logging.debug("[sender] NO SERIAL TASK1")
                 # This function packs data that we will send to the robot
 
             # Check if any of jog buttons is pressed
@@ -81,22 +82,22 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                     # ako je position in veći ili jednak nekom od limita disable tu stranu tipki
                 # Set speed for the clicked joint
                 if result_joint_jog in [0, 1, 2, 3, 4, 5]:
-                    if position_in[result_joint_jog] >= robot_config.Joint_limits_steps[result_joint_jog][1]:
+                    if position_in[result_joint_jog] >= step_ops.joint_limits_steps[result_joint_jog][1]:
                         shared_string.value = b'Error: Robot jog -> Position out of range'
                     else:
                         speed_out[result_joint_jog] = int(np.interp(jog_control[0], [0, 100],
-                                                                    [robot_config.joint_min_jog_speed[result_joint_jog],
-                                                                     robot_config.joint_max_jog_speed[
+                                                                    [step_ops.joint_min_jog_speed[result_joint_jog],
+                                                                     step_ops.joint_max_jog_speed[
                                                                          result_joint_jog]]))
                         arr = bytes(str(result_joint_jog + 1), 'utf-8')
                         shared_string.value = b'Log: Joint  ' + arr + b'  jog  '
                 else:
-                    if position_in[result_joint_jog - 6] <= robot_config.Joint_limits_steps[result_joint_jog - 6][0]:
+                    if position_in[result_joint_jog - 6] <= step_ops.joint_limits_steps[result_joint_jog - 6][0]:
                         shared_string.value = b'Error: Robot jog -> Position out of range'
                     else:
                         speed_out[result_joint_jog - 6] = int(-1 * np.interp(jog_control[0], [0, 100], [
-                            robot_config.joint_min_jog_speed[result_joint_jog - 6],
-                            robot_config.joint_max_jog_speed[result_joint_jog - 6]]))
+                            step_ops.joint_min_jog_speed[result_joint_jog - 6],
+                            step_ops.joint_max_jog_speed[result_joint_jog - 6]]))
                         arr = bytes(str(result_joint_jog - 6 + 1), 'utf-8')
                         shared_string.value = b'Log: Joint  ' + arr + b'  jog  '
 
@@ -110,19 +111,19 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                 for i in range(6):
                     speed_out[i] = 0
                 # if moving in positive direction
-                q1 = np.array([robot_config.STEPS2RADS(position_in[0], 0),
-                               robot_config.STEPS2RADS(position_in[1], 1),
-                               robot_config.STEPS2RADS(position_in[2], 2),
-                               robot_config.STEPS2RADS(position_in[3], 3),
-                               robot_config.STEPS2RADS(position_in[4], 4),
-                               robot_config.STEPS2RADS(position_in[5], 5), ])
+                q1 = np.array([step_ops.STEPS2RADS(position_in[0], 0),
+                               step_ops.STEPS2RADS(position_in[1], 1),
+                               step_ops.STEPS2RADS(position_in[2], 2),
+                               step_ops.STEPS2RADS(position_in[3], 3),
+                               step_ops.STEPS2RADS(position_in[4], 4),
+                               step_ops.STEPS2RADS(position_in[5], 5), ])
                 T = robot_config.robot.fkine(q1)
 
-                temp_var = float(np.interp(jog_control[0], [0, 100], [robot_config.cartesian_linear_velocity_min_jog,
-                                                                      robot_config.cartesian_linear_velocity_max_jog]))
+                temp_var = float(np.interp(jog_control[0], [0, 100], [step_ops.cartesian_linear_velocity_min_jog,
+                                                                      step_ops.cartesian_linear_velocity_max_jog]))
                 temp_var_angular = float(np.interp(jog_control[0], [0, 100],
-                                                   [robot_config.cartesian_angular_velocity_min,
-                                                    robot_config.cartesian_angular_velocity_max]))
+                                                   [step_ops.cartesian_angular_velocity_min,
+                                                    step_ops.cartesian_angular_velocity_max]))
 
                 speed_temp = temp_var  # Speed is 20mm/s = 0.02m/s
                 speed_temp_angular = temp_var_angular  # Speed is DEG/s
@@ -267,7 +268,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
                     # If solver gives error DISABLE ROBOT
                     if var.success:
-                        speed_out[i] = int(robot_config.SPEED_RAD2STEP(temp_var[i], i))
+                        speed_out[i] = int(step_ops.SPEED_RAD2STEP(temp_var[i], i))
                         prev_speed[i] = speed_out[i]
                     else:
                         shared_string.value = b'Error: Inverse kinematics error '
@@ -339,11 +340,11 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                     ik_error = 0  # If there is error in ik calculations
                     error_state = 0  # If 1 it is error state
                     program_len = 0  # Length of the program
-                    Program_step = 1  # Start from 1 because begin is always index 0 and it does nothing
+                    program_step = 1  # Start from 1 because begin is always index 0 and it does nothing
                     command_step = 0  # counter when stepping thru the command
                     # command_len = variable time / INTERVAL_S
                     command_len = 0  # Length of the command; usually in the commands it is in seconds but here it is in ticks of INTERVAL_S --> command_len = variable time / INTERVAL_S
-                    VALID_COMMANDS = robot_config.commands_list_true
+                    VALID_COMMANDS = step_ops.commands_list_true
 
                     # Open execute_script.txt
                     text_file = open(image_path + "/Programs/execute_script.txt", 'r')
@@ -399,15 +400,15 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                 robot_mode = "Program"
 
                 if error_state == 0:
-                    if Program_step < program_len:
+                    if program_step < program_len:
 
                         # Delay command
-                        if clean_string[Program_step] == 'Delay()':
+                        if clean_string[program_step] == 'Delay()':
                             if command_step == 0:
                                 time1 = time.perf_counter()
                                 shared_string.value = b'Log: Delay() command'
                                 # Extract time from delay
-                                Time = extract_content_from_command(clean_string_commands[Program_step])
+                                Time = extract_content_from_command(clean_string_commands[program_step])
                                 # print(Time)
                                 try:
                                     number_int = float(Time)
@@ -434,13 +435,13 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 print(time2 - time1)
                                 command_step = 0
                                 command_len = 0
-                                Program_step = Program_step + 1
+                                program_step = program_step + 1
                                 command_out.value = 255  # Set dummy data
 
                         # Output command
-                        elif clean_string[Program_step] == 'Output()':
+                        elif clean_string[program_step] == 'Output()':
                             # Extract data between ()
-                            command_value = extract_content_from_command(clean_string_commands[Program_step])
+                            command_value = extract_content_from_command(clean_string_commands[program_step])
                             cond1 = 0
                             cond2 = 0
                             if command_value.count(',') == 1:
@@ -489,7 +490,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
                                     cond1 = 0
                                     cond2 = 0
-                                    Program_step = Program_step + 1
+                                    program_step = program_step + 1
                             else:
                                 error_state = 1
                                 buttons[7] = 0
@@ -497,12 +498,12 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
 
                         # Loop command
-                        elif clean_string[Program_step] == 'Loop()':
+                        elif clean_string[program_step] == 'Loop()':
                             logging.debug('Log: Loop() command')
-                            Program_step = 1
+                            program_step = 1
 
                         # MoveJoint command
-                        elif clean_string[Program_step] == 'MoveJoint()':
+                        elif clean_string[program_step] == 'MoveJoint()':
                             # This code will execute once per command call
                             if command_step == 0:
                                 time1 = time.perf_counter()
@@ -513,7 +514,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 pattern = r'MoveJoint\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:,\s*v\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*a\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*t\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*(trap|poly))?(?:,\s*(speed))?\s*\)?'
 
                                 # Use re.match to find the pattern in the data packet
-                                match = re.match(pattern, clean_string_commands[Program_step])
+                                match = re.match(pattern, clean_string_commands[program_step])
 
                                 if match:
                                     shared_string.value = b'Log: MoveJoint() command'
@@ -536,31 +537,31 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     tracking = groups[10] if groups[10] is not None else None
 
                                     # initial pos and needed pos
-                                    initial_pos = np.array([robot_config.STEPS2RADS(position_in[0], 0),
-                                                            robot_config.STEPS2RADS(position_in[1], 1),
-                                                            robot_config.STEPS2RADS(position_in[2], 2),
-                                                            robot_config.STEPS2RADS(position_in[3], 3),
-                                                            robot_config.STEPS2RADS(position_in[4], 4),
-                                                            robot_config.STEPS2RADS(position_in[5], 5), ])
+                                    initial_pos = np.array([step_ops.STEPS2RADS(position_in[0], 0),
+                                                            step_ops.STEPS2RADS(position_in[1], 1),
+                                                            step_ops.STEPS2RADS(position_in[2], 2),
+                                                            step_ops.STEPS2RADS(position_in[3], 3),
+                                                            step_ops.STEPS2RADS(position_in[4], 4),
+                                                            step_ops.STEPS2RADS(position_in[5], 5), ])
 
-                                    needed_pos = np.array([robot_config.DEG2RAD(numbers[0] + 0.0000001),
-                                                           robot_config.DEG2RAD(numbers[1] + 0.0000001),
-                                                           robot_config.DEG2RAD(numbers[2] + 0.0000001),
-                                                           robot_config.DEG2RAD(numbers[3] + 0.0000001),
-                                                           robot_config.DEG2RAD(numbers[4] + 0.0000001),
-                                                           robot_config.DEG2RAD(numbers[5] + 0.0000001), ])
+                                    needed_pos = np.array([step_ops.DEG2RAD(numbers[0] + 0.0000001),
+                                                           step_ops.DEG2RAD(numbers[1] + 0.0000001),
+                                                           step_ops.DEG2RAD(numbers[2] + 0.0000001),
+                                                           step_ops.DEG2RAD(numbers[3] + 0.0000001),
+                                                           step_ops.DEG2RAD(numbers[4] + 0.0000001),
+                                                           step_ops.DEG2RAD(numbers[5] + 0.0000001), ])
 
-                                    needed_pos_steps = np.array([int(robot_config.DEG2STEPS(numbers[0], 0)),
-                                                                 int(robot_config.DEG2STEPS(numbers[1], 1)),
-                                                                 int(robot_config.DEG2STEPS(numbers[2], 2)),
-                                                                 int(robot_config.DEG2STEPS(numbers[3], 3)),
-                                                                 int(robot_config.DEG2STEPS(numbers[4], 4)),
-                                                                 int(robot_config.DEG2STEPS(numbers[5], 5)), ])
+                                    needed_pos_steps = np.array([int(step_ops.DEG2STEPS(numbers[0], 0)),
+                                                                 int(step_ops.DEG2STEPS(numbers[1], 1)),
+                                                                 int(step_ops.DEG2STEPS(numbers[2], 2)),
+                                                                 int(step_ops.DEG2STEPS(numbers[3], 3)),
+                                                                 int(step_ops.DEG2STEPS(numbers[4], 4)),
+                                                                 int(step_ops.DEG2STEPS(numbers[5], 5)), ])
 
                                     # Check if needed positions are in range
                                     for i in range(6):
-                                        if needed_pos[i] >= robot_config.joint_limits_radian[i][1] or needed_pos[i] <= \
-                                                robot_config.joint_limits_radian[i][0]:
+                                        if needed_pos[i] >= step_ops.joint_limits_radian[i][1] or needed_pos[i] <= \
+                                                step_ops.joint_limits_radian[i][0]:
                                             shared_string.value = b'Error: MoveJoint needed position out of range'
                                             # print(f"Joint is out of range: {i + 1}")
                                             error_state = 1
@@ -630,10 +631,10 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.joint_min_speed[max_path_index],
-                                                robot_config.joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
-                                                                                          robot_config.joint_max_acc]))
+                                                step_ops.joint_min_speed[max_path_index],
+                                                step_ops.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [step_ops.joint_min_acc,
+                                                                                          step_ops.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
@@ -668,7 +669,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > step_ops.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MoveJoint() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
@@ -711,10 +712,10 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.joint_min_speed[max_path_index],
-                                                robot_config.joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
-                                                                                          robot_config.joint_max_acc]))
+                                                step_ops.joint_min_speed[max_path_index],
+                                                step_ops.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [step_ops.joint_min_acc,
+                                                                                          step_ops.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
@@ -749,7 +750,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > step_ops.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MoveJoint() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
@@ -795,14 +796,14 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     for i in range(6):
 
                                         if additional_element == "trap":
-                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                            speed_out[i] = int(step_ops.SPEED_RAD2STEP(
                                                 qx2.qd[command_step][i] / (t_value - INTERVAL_S), i)) * (
                                                                        command_len - 1)
-                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
+                                            position_out[i] = int(step_ops.RAD2STEPS(qx2.q[command_step][i], i))
                                         elif additional_element == "poly" or additional_element == None:
-                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                            speed_out[i] = int(step_ops.SPEED_RAD2STEP(
                                                 qx2.qd[command_step][i] / (t_value - INTERVAL_S), i))  # * 199
-                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
+                                            position_out[i] = int(step_ops.RAD2STEPS(qx2.q[command_step][i], i))
 
                                 elif timebase_defined == "v and a" or timebase_defined == "None":
 
@@ -839,10 +840,10 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 print("MoveJoint done")
                                 command_step = 0
                                 command_len = 0
-                                Program_step = Program_step + 1
+                                program_step = program_step + 1
 
                         # Joint space move but with pose
-                        elif clean_string[Program_step] == 'MovePose()':
+                        elif clean_string[program_step] == 'MovePose()':
                             # This code will execute once per command call
                             if command_step == 0:
                                 time1 = time.perf_counter()
@@ -852,7 +853,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 pattern = r'MovePose\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:,\s*v\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*a\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*t\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*(trap|poly))?(?:,\s*(speed))?\s*\)?'
 
                                 # Use re.match to find the pattern in the data packet
-                                match = re.match(pattern, clean_string_commands[Program_step])
+                                match = re.match(pattern, clean_string_commands[program_step])
 
                                 if match:
                                     shared_string.value = b'Log: MovePose() command'
@@ -875,12 +876,12 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     tracking = groups[10] if groups[10] is not None else None
 
                                     # initial pos and needed pos
-                                    initial_pos = np.array([robot_config.STEPS2RADS(position_in[0], 0),
-                                                            robot_config.STEPS2RADS(position_in[1], 1),
-                                                            robot_config.STEPS2RADS(position_in[2], 2),
-                                                            robot_config.STEPS2RADS(position_in[3], 3),
-                                                            robot_config.STEPS2RADS(position_in[4], 4),
-                                                            robot_config.STEPS2RADS(position_in[5], 5), ])
+                                    initial_pos = np.array([step_ops.STEPS2RADS(position_in[0], 0),
+                                                            step_ops.STEPS2RADS(position_in[1], 1),
+                                                            step_ops.STEPS2RADS(position_in[2], 2),
+                                                            step_ops.STEPS2RADS(position_in[3], 3),
+                                                            step_ops.STEPS2RADS(position_in[4], 4),
+                                                            step_ops.STEPS2RADS(position_in[5], 5), ])
 
                                     R3 = SE3.RPY([numbers[3], numbers[4], numbers[5]], unit='deg', order='xyz')
                                     R3.t[0] = numbers[0] / 1000
@@ -888,7 +889,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     R3.t[2] = numbers[2] / 1000
 
                                     q_pose_move = robot_config.robot.ikine_LMS(R3,
-                                                                               q0=robot_config.joints_standby_position_radian,
+                                                                               q0=step_ops.joints_standby_position_radian,
                                                                                ilimit=60)
                                     joint_angle_pose = np.array(
                                         [q_pose_move.q[0], q_pose_move.q[1], q_pose_move.q[2], q_pose_move.q[3],
@@ -901,17 +902,17 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                                            joint_angle_pose[4] + 0.0000001,
                                                            joint_angle_pose[5] + 0.0000001, ])
 
-                                    needed_pos_steps = np.array([int(robot_config.RAD2STEPS(joint_angle_pose[0], 0)),
-                                                                 int(robot_config.RAD2STEPS(joint_angle_pose[1], 1)),
-                                                                 int(robot_config.RAD2STEPS(joint_angle_pose[2], 2)),
-                                                                 int(robot_config.RAD2STEPS(joint_angle_pose[3], 3)),
-                                                                 int(robot_config.RAD2STEPS(joint_angle_pose[4], 4)),
-                                                                 int(robot_config.RAD2STEPS(joint_angle_pose[5], 5)), ])
+                                    needed_pos_steps = np.array([int(step_ops.RAD2STEPS(joint_angle_pose[0], 0)),
+                                                                 int(step_ops.RAD2STEPS(joint_angle_pose[1], 1)),
+                                                                 int(step_ops.RAD2STEPS(joint_angle_pose[2], 2)),
+                                                                 int(step_ops.RAD2STEPS(joint_angle_pose[3], 3)),
+                                                                 int(step_ops.RAD2STEPS(joint_angle_pose[4], 4)),
+                                                                 int(step_ops.RAD2STEPS(joint_angle_pose[5], 5)), ])
 
                                     # Check if needed positions are in range
                                     for i in range(6):
-                                        if needed_pos[i] >= robot_config.joint_limits_radian[i][1] or needed_pos[i] <= \
-                                                robot_config.joint_limits_radian[i][0]:
+                                        if needed_pos[i] >= step_ops.joint_limits_radian[i][1] or needed_pos[i] <= \
+                                                step_ops.joint_limits_radian[i][0]:
                                             shared_string.value = b'Error: MovePose needed joint position out of range'
                                             # print(f"Joint is out of range: {i + 1}")
                                             error_state = 1
@@ -981,10 +982,10 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.joint_min_speed[max_path_index],
-                                                robot_config.joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
-                                                                                          robot_config.joint_max_acc]))
+                                                step_ops.joint_min_speed[max_path_index],
+                                                step_ops.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [step_ops.joint_min_acc,
+                                                                                          step_ops.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
@@ -1019,7 +1020,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > step_ops.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MovePose() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
@@ -1061,10 +1062,10 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             a_value_real = 1000
 
                                             v_value_array[max_path_index] = (np.interp(v_value, [0, 100], [
-                                                robot_config.joint_min_speed[max_path_index],
-                                                robot_config.joint_max_speed[max_path_index]]))
-                                            a_value_real = (np.interp(a_value, [0, 100], [robot_config.joint_min_acc,
-                                                                                          robot_config.joint_max_acc]))
+                                                step_ops.joint_min_speed[max_path_index],
+                                                step_ops.joint_max_speed[max_path_index]]))
+                                            a_value_real = (np.interp(a_value, [0, 100], [step_ops.joint_min_acc,
+                                                                                          step_ops.joint_max_acc]))
                                             # print("a value is:", a_value_real)
                                             # print("v value is:", v_value_array[max_path_index])
                                             # from leading profile calculate acceleration time and total duration of the move
@@ -1099,7 +1100,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             for i in range(6):
                                                 if i in matching_indexes:
                                                     continue
-                                                if np.any(abs(trap_calc[i].qd) > robot_config.joint_max_speed[i]):
+                                                if np.any(abs(trap_calc[i].qd) > step_ops.joint_max_speed[i]):
                                                     shared_string.value = b'Error: MovePose() speed or acceleration too big'
                                                     # print("error in joint:", i)
                                                     error_state = 1
@@ -1145,14 +1146,14 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     for i in range(6):
 
                                         if additional_element == "trap":
-                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                            speed_out[i] = int(step_ops.SPEED_RAD2STEP(
                                                 qx2.qd[command_step][i] / (t_value - INTERVAL_S), i)) * (
                                                                        command_len - 1)
-                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
+                                            position_out[i] = int(step_ops.RAD2STEPS(qx2.q[command_step][i], i))
                                         elif additional_element == "poly" or additional_element == None:
-                                            speed_out[i] = int(robot_config.SPEED_RAD2STEP(
+                                            speed_out[i] = int(step_ops.SPEED_RAD2STEP(
                                                 qx2.qd[command_step][i] / (t_value - INTERVAL_S), i))  # * 199
-                                            position_out[i] = int(robot_config.RAD2STEPS(qx2.q[command_step][i], i))
+                                            position_out[i] = int(step_ops.RAD2STEPS(qx2.q[command_step][i], i))
 
                                 elif timebase_defined == "v and a" or timebase_defined == "None":
 
@@ -1189,11 +1190,11 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 print("MovePose done")
                                 command_step = 0
                                 command_len = 0
-                                Program_step = Program_step + 1
+                                program_step = program_step + 1
 
 
                         # Move in cartesian space command
-                        elif clean_string[Program_step] == 'MoveCart()':
+                        elif clean_string[program_step] == 'MoveCart()':
                             # This code will execute once per command call
                             if command_step == 0:
                                 time1 = time.perf_counter()
@@ -1203,7 +1204,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 pattern = r'MoveCart\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:,\s*v\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*a\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*t\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*(trap|poly))?(?:,\s*(speed))?\s*\)?'
 
                                 # Use re.match to find the pattern in the data packet
-                                match = re.match(pattern, clean_string_commands[Program_step])
+                                match = re.match(pattern, clean_string_commands[program_step])
 
                                 if match:
                                     shared_string.value = b'Log: MoveCart() command'
@@ -1227,15 +1228,15 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
                                     # joint positons we start from
                                     initial_joint_position = np.array(
-                                        [robot_config.STEPS2RADS(position_in[0], 0) - 0.0001,
-                                         robot_config.STEPS2RADS(position_in[1], 1) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[2], 2) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[3], 3) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[4], 4) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[5], 5) - 0.001, ])
+                                        [step_ops.STEPS2RADS(position_in[0], 0) - 0.0001,
+                                         step_ops.STEPS2RADS(position_in[1], 1) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[2], 2) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[3], 3) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[4], 4) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[5], 5) - 0.001, ])
                                     # current pose can be contructed from fkine of current joint positions
 
-                                    Initial_pose = robot_config.robot.fkine(initial_joint_position)
+                                    initial_pose = robot_config.robot.fkine(initial_joint_position)
 
                                     # Construct a matrix from given arguments, this will be needed pose
                                     Needed_pose = SE3.RPY([numbers[3], numbers[4], numbers[5]], unit='deg', order='xyz')
@@ -1272,7 +1273,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                                 t_t_ = trapezoidal(0, 1, t_tt)
                                                 t_t = t_t_.q
 
-                                            # Calculated_distance = math.sqrt((Needed_pose.t[0] - Initial_pose.t[0])**2 + (Needed_pose.t[1] - Initial_pose.t[1])**2 + (Needed_pose.t[2] - Initial_pose.t[2])**2)
+                                            # Calculated_distance = math.sqrt((Needed_pose.t[0] - initial_pose.t[0])**2 + (Needed_pose.t[1] - initial_pose.t[1])**2 + (Needed_pose.t[2] - initial_pose.t[2])**2)
                                             # print("calculated distance is:", Calculated_distance)
 
 
@@ -1291,8 +1292,8 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                                 buttons[7] = 0
                                                 shared_string.value = b'Error: MovePose() command velocity setpoint out of range'
 
-                                            # v_value_cart_real = (np.interp(v_value,[0,100],[robot_config.Cartesian_linear_velocity_min,robot_config.Cartesian_linear_velocity_max]))
-                                            # a_value_cart_real =  (np.interp(a_value,[0,100],[robot_config.Cartesian_linear_acc_min,robot_config.Cartesian_linear_acc_max]))
+                                            # v_value_cart_real = (np.interp(v_value,[0,100],[step_ops.Cartesian_linear_velocity_min,step_ops.Cartesian_linear_velocity_max]))
+                                            # a_value_cart_real =  (np.interp(a_value,[0,100],[step_ops.Cartesian_linear_acc_min,step_ops.Cartesian_linear_acc_max]))
                                             #
                                             t_value_s = 3.6
                                             t_tt = np.arange(0, t_value_s, INTERVAL_S)
@@ -1318,8 +1319,8 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             # use calculations
 
                                     # perform ctraj
-                                    Ctraj_traj = rp.tools.trajectory.ctraj(Initial_pose, Needed_pose, t_t)
-                                    # print(Ctraj_traj)
+                                    ctraj_traj = rp.tools.trajectory.ctraj(initial_pose, Needed_pose, t_t)
+                                    # print(ctraj_traj)
 
                                     temp = [0] * len(t_t)
                                     joint_positions = [0] * len(t_t)
@@ -1346,7 +1347,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
                                 if ik_error == 0:
                                     # Calculate joint positons from matrix crated by ctraj
-                                    temp[command_step] = robot_config.robot.ikine_LMS(Ctraj_traj[command_step],
+                                    temp[command_step] = robot_config.robot.ikine_LMS(ctraj_traj[command_step],
                                                                                       q0=joint_positions[
                                                                                           command_step - 1], ilimit=60)
                                     joint_positions[command_step] = temp[command_step][0]
@@ -1370,8 +1371,8 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                         # Set speeds and positions
                                     for i in range(6):
                                         position_out[i] = (
-                                            int(robot_config.RAD2STEPS(joint_positions[command_step][i], i)))
-                                        speed_out[i] = int(robot_config.SPEED_RAD2STEP(velocity_array[i], i))
+                                            int(step_ops.RAD2STEPS(joint_positions[command_step][i], i)))
+                                        speed_out[i] = int(step_ops.SPEED_RAD2STEP(velocity_array[i], i))
 
                                         # print("joint positons are:", joint_positions[command_step])
                                     if tracking == None:
@@ -1413,7 +1414,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     # check the speeds
 
                                     for i in range(6):
-                                        if abs(speed_out[i] > robot_config.joint_max_speed[i]):
+                                        if abs(speed_out[i] > step_ops.joint_max_speed[i]):
                                             shared_string.value = b'Error: MoveCart() speed is too big'
                                             print("error in joint:", i)
                                             error_state = 1
@@ -1437,11 +1438,11 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 print("MoveCart done")
                                 command_step = 0
                                 command_len = 0
-                                Program_step = Program_step + 1
+                                program_step = program_step + 1
 
 
                         # Move in cartesian space command
-                        elif clean_string[Program_step] == 'MoveCartRelTRF()':
+                        elif clean_string[program_step] == 'MoveCartRelTRF()':
                             # This code will execute once per command call
                             if command_step == 0:
                                 time1 = time.perf_counter()
@@ -1451,7 +1452,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 pattern = r'MoveCartRelTRF\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:,\s*v\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*a\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*t\s*=\s*(-?\d+(?:\.\d+)?))?(?:,\s*(trap|poly))?(?:,\s*(speed))?\s*\)?'
 
                                 # Use re.match to find the pattern in the data packet
-                                match = re.match(pattern, clean_string_commands[Program_step])
+                                match = re.match(pattern, clean_string_commands[program_step])
 
                                 if match:
                                     shared_string.value = b'Log: MoveCartRelTRF() command'
@@ -1475,18 +1476,18 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
                                     # joint positons we start from
                                     initial_joint_position = np.array(
-                                        [robot_config.STEPS2RADS(position_in[0], 0) - 0.0001,
-                                         robot_config.STEPS2RADS(position_in[1], 1) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[2], 2) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[3], 3) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[4], 4) - 0.00015,
-                                         robot_config.STEPS2RADS(position_in[5], 5) - 0.001, ])
+                                        [step_ops.STEPS2RADS(position_in[0], 0) - 0.0001,
+                                         step_ops.STEPS2RADS(position_in[1], 1) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[2], 2) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[3], 3) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[4], 4) - 0.00015,
+                                         step_ops.STEPS2RADS(position_in[5], 5) - 0.001, ])
                                     # current pose can be contructed from fkine of current joint positions
 
-                                    Initial_pose = robot_config.robot.fkine(initial_joint_position)
-                                    # print("current pose TRF first is ",Initial_pose)
+                                    initial_pose = robot_config.robot.fkine(initial_joint_position)
+                                    # print("current pose TRF first is ",initial_pose)
 
-                                    Ttt = Initial_pose
+                                    Ttt = initial_pose
                                     x1_ = [numbers[0] / 1000, numbers[1] / 1000, numbers[2] / 1000]
                                     x2_ = Ttt * x1_
                                     Needed_pose = Ttt
@@ -1495,11 +1496,11 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     Needed_pose.t[2] = x2_[2]
                                     Needed_pose = Needed_pose * Needed_pose.Rx(numbers[3], 'deg') * Needed_pose.Ry(
                                         numbers[4], 'deg') * Needed_pose.Rz(numbers[5], 'deg')
-                                    Initial_pose = robot_config.robot.fkine(initial_joint_position)
+                                    initial_pose = robot_config.robot.fkine(initial_joint_position)
 
                                     # print("x1 is",x1_)
                                     # print("x2 is ",x2_)
-                                    # print("current pose TRF second is ",Initial_pose)
+                                    # print("current pose TRF second is ",initial_pose)
                                     # print("needed pose  TRF is",Needed_pose)
 
                                     # TODO Check if needed pose joint angles are in range
@@ -1529,7 +1530,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                                 t_t_ = trapezoidal(0, 1, t_tt)
                                                 t_t = t_t_.q
 
-                                            # Calculated_distance = math.sqrt((Needed_pose.t[0] - Initial_pose.t[0])**2 + (Needed_pose.t[1] - Initial_pose.t[1])**2 + (Needed_pose.t[2] - Initial_pose.t[2])**2)
+                                            # Calculated_distance = math.sqrt((Needed_pose.t[0] - initial_pose.t[0])**2 + (Needed_pose.t[1] - initial_pose.t[1])**2 + (Needed_pose.t[2] - initial_pose.t[2])**2)
                                             # print("calculated distance is:", Calculated_distance)
 
 
@@ -1548,8 +1549,8 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                                 buttons[7] = 0
                                                 shared_string.value = b'Error: MoveCartRelTRF() command velocity setpoint out of range'
 
-                                            # v_value_cart_real = (np.interp(v_value,[0,100],[robot_config.Cartesian_linear_velocity_min,robot_config.Cartesian_linear_velocity_max]))
-                                            # a_value_cart_real =  (np.interp(a_value,[0,100],[robot_config.Cartesian_linear_acc_min,robot_config.Cartesian_linear_acc_max]))
+                                            # v_value_cart_real = (np.interp(v_value,[0,100],[step_ops.Cartesian_linear_velocity_min,step_ops.Cartesian_linear_velocity_max]))
+                                            # a_value_cart_real =  (np.interp(a_value,[0,100],[step_ops.Cartesian_linear_acc_min,step_ops.Cartesian_linear_acc_max]))
                                             #
                                             t_value_s = 3.6
                                             t_tt = np.arange(0, t_value_s, INTERVAL_S)
@@ -1575,8 +1576,8 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                             # use calculations
 
                                     # perform ctraj
-                                    Ctraj_traj = rp.tools.trajectory.ctraj(Initial_pose, Needed_pose, t_t)
-                                    # print(Ctraj_traj)
+                                    ctraj_traj = rp.tools.trajectory.ctraj(initial_pose, Needed_pose, t_t)
+                                    # print(ctraj_traj)
 
                                     temp = [0] * len(t_t)
                                     joint_positions = [0] * len(t_t)
@@ -1603,7 +1604,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
 
                                 if ik_error == 0:
                                     # Calculate joint positons from matrix crated by ctraj
-                                    temp[command_step] = robot_config.robot.ikine_LMS(Ctraj_traj[command_step],
+                                    temp[command_step] = robot_config.robot.ikine_LMS(ctraj_traj[command_step],
                                                                                       q0=joint_positions[
                                                                                           command_step - 1], ilimit=60)
                                     joint_positions[command_step] = temp[command_step][0]
@@ -1627,8 +1628,8 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                         # Set speeds and positions
                                     for i in range(6):
                                         position_out[i] = (
-                                            int(robot_config.RAD2STEPS(joint_positions[command_step][i], i)))
-                                        speed_out[i] = int(robot_config.SPEED_RAD2STEP(velocity_array[i], i))
+                                            int(step_ops.RAD2STEPS(joint_positions[command_step][i], i)))
+                                        speed_out[i] = int(step_ops.SPEED_RAD2STEP(velocity_array[i], i))
 
                                         # print("joint positons are:", joint_positions[command_step])
                                     if tracking == None:
@@ -1670,7 +1671,7 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                     # check the speeds
 
                                     for i in range(6):
-                                        if abs(speed_out[i] > robot_config.joint_max_speed[i]):
+                                        if abs(speed_out[i] > step_ops.joint_max_speed[i]):
                                             shared_string.value = b'Error: MoveCartRelTRF() speed is too big'
                                             print("error in joint:", i)
                                             print("command step is", command_step)
@@ -1695,31 +1696,31 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 print("MoveCart done")
                                 command_step = 0
                                 command_len = 0
-                                Program_step = Program_step + 1
+                                program_step = program_step + 1
 
 
 
 
 
                         # Dummy command (used for testing)
-                        elif clean_string[Program_step] == 'Dummy()':
+                        elif clean_string[program_step] == 'Dummy()':
                             logging.debug('Log: Dummy() command')
                             command_out.value = 255  # Set dummy data
-                            Program_step = Program_step + 1
+                            program_step = program_step + 1
 
                         # End command
-                        elif clean_string[Program_step] == 'End()':
+                        elif clean_string[program_step] == 'End()':
                             logging.debug('Log: End() command')
-                            Program_step = 1
+                            program_step = 1
                             robot_mode = "Dummy"
                             buttons[7] = 0
 
 
                         # Gripper command
-                        elif clean_string[Program_step] == 'Gripper()':
+                        elif clean_string[program_step] == 'Gripper()':
 
                             pattern = r'Gripper\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)'
-                            match = re.match(pattern, clean_string_commands[Program_step])
+                            match = re.match(pattern, clean_string_commands[program_step])
                             if match:
 
                                 match_1 = int(match.group(1))
@@ -1737,16 +1738,16 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
                                 shared_string.value = b'Log: Error: Gripper() command'
 
                             logging.debug('Log: Gripper() command')
-                            Program_step = Program_step + 1
+                            program_step = program_step + 1
                             # Robot_mode = "Dummy"
                             # Buttons[7] = 0
 
                         # Gripper_cal command
-                        elif clean_string[Program_step] == 'Gripper_cal()':
+                        elif clean_string[program_step] == 'Gripper_cal()':
                             logging.debug('Log: Gripper_cal() command')
                             shared_string.value = b'Log: Gripper calibration command'
                             gripper_data_out[4] = 1
-                            Program_step = Program_step + 1
+                            program_step = program_step + 1
                             # Robot_mode = "Dummy"
                             # Buttons[7] = 0
 
@@ -1771,9 +1772,9 @@ def send_data(shared_string, position_out, speed_out, command_out, affected_join
         else:
             try:
 
-                if my_os == 'Linux':
+                if platform == 'Linux':
                     com_port = '/dev/ttyACM' + str(general_data[0])
-                elif my_os == 'Windows':
+                elif platform == 'Windows':
                     com_port = 'COM' + str(general_data[0])
 
                 print(com_port)

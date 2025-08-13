@@ -2,6 +2,7 @@ import tkinter
 import tkinter.messagebox
 import customtkinter
 import matplotlib.pyplot as plt
+import matplotlib
 import time
 import roboticstoolbox as rp
 import numpy as np
@@ -20,7 +21,9 @@ from s_visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
 import config.robot_config as config
-
+import core.step_operations as step_ops
+if platform == "Darwin":
+    matplotlib.use("TkAgg")
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
@@ -28,16 +31,8 @@ logging.basicConfig(level = logging.DEBUG,
 #logging.disable(logging.DEBUG)
 
 
-# Finds out where the program and images are stored
-my_os = platform.system()
-if my_os == "Windows":
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
-    logging.debug("Os is Windows")
-else:
-    Image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
-    logging.debug("Os is Linux")
-    
-logging.debug(Image_path)
+
+
 
 text_size = 14
 
@@ -53,9 +48,9 @@ def run_sim(Position_out, Position_in, Position_Sim, Buttons):
         y = random.random()
         z = random.random()
         theta = np.array([y, z, -0.25 * pi, 0., x, 0.])
-        theta = np.array([config.STEPS2RADS(Position_in[0],0),config.STEPS2RADS(Position_in[1],1),
-                          config.STEPS2RADS(Position_in[2],2),config.STEPS2RADS(Position_in[3],3),
-                          config.STEPS2RADS(Position_in[4],4),config.STEPS2RADS(Position_in[5],5)])
+        theta = np.array([step_ops.STEPS2RADS(Position_in[0],0),step_ops.STEPS2RADS(Position_in[1],1),
+                          step_ops.STEPS2RADS(Position_in[2],2),step_ops.STEPS2RADS(Position_in[3],3),
+                          step_ops.STEPS2RADS(Position_in[4],4),step_ops.STEPS2RADS(Position_in[5],5)])
         
         #theta = np.array([0, -pi/2, pi, 0., 0, pi])
         f = robot.forward(theta)      
@@ -103,8 +98,8 @@ def run_sim(Position_out, Position_in, Position_Sim, Buttons):
     app.wm_attributes('-topmost',False)
 
     # Add app icon
-    if my_os == "Windows":
-        logo = (os.path.join(Image_path, "logo.ico"))
+    if platform == "Windows":
+        logo = (os.path.join(image_path, "logo.ico"))
         app.iconbitmap(logo)
 
     # configure grid layout (4x4) wight 0 znači da je fixed, 1 znači da scale radi?

@@ -13,13 +13,13 @@ def DEG2STEPS(Degrees, index):
     return Steps
 
 
-Joint_limits_steps = [[DEG2STEPS(joint_limits_degree[0][0], 0), DEG2STEPS(joint_limits_degree[0][1], 0)],
+joint_limits_steps = [[DEG2STEPS(joint_limits_degree[0][0], 0), DEG2STEPS(joint_limits_degree[0][1], 0)],
                       [DEG2STEPS(joint_limits_degree[1][0], 1), DEG2STEPS(joint_limits_degree[1][1], 1)],
                       [DEG2STEPS(joint_limits_degree[2][0], 2), DEG2STEPS(joint_limits_degree[2][1], 2)],
                       [DEG2STEPS(joint_limits_degree[3][0], 3), DEG2STEPS(joint_limits_degree[3][1], 3)],
                       [DEG2STEPS(joint_limits_degree[4][0], 4), DEG2STEPS(joint_limits_degree[4][1], 4)],
                       [DEG2STEPS(joint_limits_degree[5][0], 5), DEG2STEPS(joint_limits_degree[5][1], 5)]]
-Joint_limits_steps = [[int(i[0]), int(i[1])] for i in Joint_limits_steps]
+joint_limits_steps = [[int(i[0]), int(i[1])] for i in joint_limits_steps]
 
 
 def STEPS2DEG(Steps, index):

@@ -1,6 +1,7 @@
 import tkinter
 import tkinter.messagebox
 import customtkinter
+import matplotlib
 import matplotlib.pyplot as plt
 import time
 import roboticstoolbox as rp
@@ -22,43 +23,37 @@ import matplotlib.animation as animation
 #from visual_kinematics.RobotSerial import *
 import numpy as np
 from math import pi
-import config.robot_config as PAROL6_ROBOT
 from datetime import datetime
 import re
-
+import config.robot_config as PAROL6_ROBOT
+import core.step_operations as step_ops
+import core.byte_operations as byte_ops
+from core.common import platform, image_path
+from io_data import *
+if platform == "Darwin":
+    print("EFEFEF")
+    matplotlib.use("TkAgg")
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
 )
 #logging.disable(logging.DEBUG)
 
-
-# Finds out where the program and images are stored
-my_os = platform.system()
-if my_os == "Windows":
-    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "files")
-    logging.debug("OS: Windows")
-elif my_os == "Darwin":
-    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "files")
-    logging.debug("OS: Mac OS")
-else:
-    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "files")
-    logging.debug("OS: Linux")
 text_size = 14
 
 # Globals
 current_menu = "Jog"
 wrf_trf = "TRF"
-Current_Custom_pose_select = "Current"
+current_custom_pose_select = "Current"
 Robot_sim = True
 Real_robot = True
 left_right_select = "Left"
 Quick_grip = 0
 Now_open_txt = ''
 prev_string_shared = ""
-Gripper_activate_deactivate = 1
-Gripper_action_status = 1
-Gripper_rel_dir = 1
+gripper_activate_deactivate = 1
+gripper_action_status = 1
+gripper_rel_dir = 1
 
 # These are the values that are displayed in the gui and are updated every xx ms
 x_value = ""
@@ -103,9 +98,11 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         # configure window
     app.title("Source controller.py")
     app.geometry(f"{1700}x{1100}")
-    app.attributes('-topmost',False)
+    # app.attributes('-topmost',False)
+    app.lift()
+    app.focus_force()
     # Add app icon  
-    if my_os == "Windows":
+    if platform == "Windows":
         logo = (os.path.join(image_path, "logo.ico"))
         app.iconbitmap(logo)
 
@@ -183,6 +180,21 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
         app.COMPORT = customtkinter.CTkEntry(app.bottom_select_frame, width= 150)
         app.COMPORT.grid(row=3, column=5, padx=(0, 0),pady=(3,3),sticky="E")
+
+        # Add a helpful label for macOS users
+        if platform == "Darwin":
+            app.COMPORT_label = customtkinter.CTkLabel(app.bottom_select_frame,
+                                                       text="Port (e.g., /dev/tty.usbmodem*)",
+                                                       font=customtkinter.CTkFont(size=10))
+            app.COMPORT_label.grid(row=2, column=5, padx=(0, 0), pady=(3, 0), sticky="E")
+        elif platform == "Windows":
+            app.COMPORT_label = customtkinter.CTkLabel(app.bottom_select_frame, text="Port (e.g., 3 for COM3)",
+                                                       font=customtkinter.CTkFont(size=10))
+            app.COMPORT_label.grid(row=2, column=5, padx=(0, 0), pady=(3, 0), sticky="E")
+        else:  # Linux
+            app.COMPORT_label = customtkinter.CTkLabel(app.bottom_select_frame, text="Port (e.g., 0 for ttyACM0)",
+                                                       font=customtkinter.CTkFont(size=10))
+            app.COMPORT_label.grid(row=2, column=5, padx=(0, 0), pady=(3, 0), sticky="E")
 
         app.Connect_button = customtkinter.CTkButton(app.bottom_select_frame,text="Connect", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = set_comm_port)
         app.Connect_button.grid(row=3, column=8, padx=padx_top_bot,pady = 10,sticky="e")
@@ -388,8 +400,8 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         # Auto release direction
         # Calibrate
 
-        app.gripper_ID = customtkinter.CTkLabel(app.Gripper_frame, text="Gripper ID is: " + str(0), font=customtkinter.CTkFont(size=text_size))
-        app.gripper_ID.grid(row=0, column=0, padx=20, pady = (10, 20), sticky="news")
+        app.gripper_id = customtkinter.CTkLabel(app.Gripper_frame, text="Gripper ID is: " + str(0), font=customtkinter.CTkFont(size=text_size))
+        app.gripper_id.grid(row=0, column=0, padx=20, pady = (10, 20), sticky="news")
 
         app.grip_cal_status = customtkinter.CTkLabel(app.Gripper_frame, text="Calibration status is: " + str(0), font=customtkinter.CTkFont(size=text_size))
         app.grip_cal_status.grid(row=0, column=1, padx=20,pady = (10,20),sticky="news")
@@ -557,8 +569,8 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
         app.TRF_select.select()
         #cart z up and down            
-        z_up =Image.open(os.path.join(image_path, "cart_z_up.png"))
-        z_down =Image.open(os.path.join(image_path, "cart_z_down.png")) #z_up.rotate(180)
+        z_up = Image.open(os.path.join(image_path, "cart_z_up.png"))
+        z_down = Image.open(os.path.join(image_path, "cart_z_down.png")) #z_up.rotate(180)
 
         app.z_up = customtkinter.CTkImage(z_up, size=(80, 80))
         app.z_up_button = customtkinter.CTkButton(app.cart_frame, corner_radius=0, height=10, border_spacing=10,
@@ -750,30 +762,30 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         app.slider1.set(50)
         app.slider1.grid(row=1, column=4,columnspan=1, padx=(20, 10), pady=(5, 5), sticky="news")
 
-        app.Velocity_percent = customtkinter.CTkLabel(app.joint_positions_frame,text="100%", font = customtkinter.CTkFont(size=18, family='TkDefaultFont'))
-        app.Velocity_percent.grid(row=1, column=5, padx=5,pady = (5,5),sticky="news")
+        app.velocity_percent = customtkinter.CTkLabel(app.joint_positions_frame, text="100%", font = customtkinter.CTkFont(size=18, family='TkDefaultFont'))
+        app.velocity_percent.grid(row=1, column=5, padx=5, pady = (5, 5), sticky="news")
 
-        app.Accel_label = customtkinter.CTkLabel(app.joint_positions_frame,text="JOG acceleration", font = customtkinter.CTkFont(size=16, family='TkDefaultFont'))
-        app.Accel_label.grid(row=2, column=3, padx=(50,20),pady = (5,5),sticky="news")
+        app.accel_label = customtkinter.CTkLabel(app.joint_positions_frame, text="JOG acceleration", font = customtkinter.CTkFont(size=16, family='TkDefaultFont'))
+        app.accel_label.grid(row=2, column=3, padx=(50, 20), pady = (5, 5), sticky="news")
 
         app.slider2 = customtkinter.CTkSlider(app.joint_positions_frame,from_ = 0, to = 100,number_of_steps=100)
         app.slider2.set(50)
         app.slider2.grid(row=2, column=4,columnspan=1, padx=(20, 10), pady=(5, 5), sticky="news")
 
-        app.Accel_percent = customtkinter.CTkLabel(app.joint_positions_frame,text="100%", font = customtkinter.CTkFont(size=18, family='TkDefaultFont'))
-        app.Accel_percent.grid(row=2, column=5, padx=5,pady = (5,5),sticky="news")
+        app.accel_percent = customtkinter.CTkLabel(app.joint_positions_frame, text="100%", font = customtkinter.CTkFont(size=18, family='TkDefaultFont'))
+        app.accel_percent.grid(row=2, column=5, padx=5, pady = (5, 5), sticky="news")
 
-        app.Incremental_jog = customtkinter.CTkLabel(app.joint_positions_frame,text="Incremental jog", font = customtkinter.CTkFont(size=16, family='TkDefaultFont'))
-        app.Incremental_jog.grid(row=3, column=3, padx=5,pady = (5,5),sticky="news")
+        app.incremental_jog = customtkinter.CTkLabel(app.joint_positions_frame, text="Incremental jog", font = customtkinter.CTkFont(size=16, family='TkDefaultFont'))
+        app.incremental_jog.grid(row=3, column=3, padx=5, pady = (5, 5), sticky="news")
 
-        app.Incremental_jog_button = customtkinter.CTkRadioButton(master=app.joint_positions_frame, text="",  value=2)
-        app.Incremental_jog_button.grid(row=3, column=4, pady=10, padx=20, sticky="we")
+        app.incremental_jog_button = customtkinter.CTkRadioButton(master=app.joint_positions_frame, text="", value=2)
+        app.incremental_jog_button.grid(row=3, column=4, pady=10, padx=20, sticky="we")
 
-        app.Incremental_jog_step = customtkinter.CTkLabel(app.joint_positions_frame,text="Step", font = customtkinter.CTkFont(size=16, family='TkDefaultFont'))
-        app.Incremental_jog_step.grid(row=4, column=3, padx=5,pady = (5,5),sticky="new")
+        app.incremental_jog_step = customtkinter.CTkLabel(app.joint_positions_frame, text="Step", font = customtkinter.CTkFont(size=16, family='TkDefaultFont'))
+        app.incremental_jog_step.grid(row=4, column=3, padx=5, pady = (5, 5), sticky="new")
 
-        app.Step_entry = customtkinter.CTkEntry(app.joint_positions_frame, width= 50)
-        app.Step_entry.grid(row=4, column=4, padx=(0, 0),pady=(3,3),sticky="new")
+        app.step_entry = customtkinter.CTkEntry(app.joint_positions_frame, width= 50)
+        app.step_entry.grid(row=4, column=4, padx=(0, 0), pady=(3, 3), sticky="new")
 
         app.enable_disable = customtkinter.CTkButton(app.joint_positions_frame,text="Enable", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = enable_press)
         app.enable_disable.grid(row=5, column=3, padx=padx_top_bot,pady = 10,sticky="e")
@@ -781,8 +793,8 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         app.enable_disable_2 = customtkinter.CTkButton(app.joint_positions_frame,text="Disable", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = disable_press)
         app.enable_disable_2.grid(row=6, column=3, padx=padx_top_bot,pady = 10,sticky="e")
 
-        app.Quick_gripper_on_off = customtkinter.CTkRadioButton(master=app.joint_positions_frame, text="Gripper On/Off",  command = quick_gripper_button )
-        app.Quick_gripper_on_off.grid(row=7, column=4, pady=10, padx=20, sticky="we")
+        app.quick_gripper_on_off = customtkinter.CTkRadioButton(master=app.joint_positions_frame, text="Gripper On/Off", command = quick_gripper_button)
+        app.quick_gripper_on_off.grid(row=7, column=4, pady=10, padx=20, sticky="we")
 
         app.home = customtkinter.CTkButton(app.joint_positions_frame,text="Home", font = customtkinter.CTkFont(size=15, family='TkDefaultFont'),command = home_robot)
         app.home.grid(row=5, column=4, padx=padx_top_bot,pady = 10,sticky="e")
@@ -987,7 +999,7 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
             if value[0] == "Cartesian_space" or value[0] == "Joint_space" or value[0] == "Conditional_stetements":
                 None
                 # Do nothing here because these are the selection menus
-            elif Current_Custom_pose_select == "Current":
+            elif current_custom_pose_select == "Current":
                 if value[0] == "MoveJoint":
                     app.textbox_program.insert(tk.INSERT, str(value[0]) + "(" + joint1_value + "," + joint2_value + "," + joint3_value + "," +
                                                joint4_value + "," + joint5_value + "," + joint6_value + ")" + "\n")
@@ -1006,7 +1018,7 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
                 else:
                     app.textbox_program.insert(tk.INSERT, str(value[0]) + "()" +"\n")
           
-            elif Current_Custom_pose_select == "Custom":
+            elif current_custom_pose_select == "Custom":
                 app.textbox_program.insert(tk.INSERT, str(value[0]) + "()" +"\n")
 
         app.table.bind('<ButtonRelease-1>', select)
@@ -1082,12 +1094,40 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         if match:
            com_number = int(match.group(1))
            general_data[0] = com_number
-        else:
-             None  # Return None if no match is found
 
-        print(general_data[0])
-        
-        
+        # For macOS, allow full port paths
+        if platform == "Darwin":
+            # If input looks like a full path, store it as a string in General_data[2]
+            if COMPORT_value.startswith('/dev/'):
+                # Store the full path in a new General_data index for macOS
+                if len(general_data) < 3:
+                    # Extend General_data array if needed
+                    general_data.extend([0])  # Add space for full port path flag
+                general_data[0] = -1  # Use -1 to indicate full path mode
+                # Store full path in shared_string temporarily for serial functions to access
+                shared_string.value = COMPORT_value.encode('utf-8')
+            else:
+                # Try to extract number for backward compatibility
+                pattern = re.compile(r'\D*(\d+)\D*')
+                match = pattern.match(COMPORT_value)
+                if match:
+                    com_number = int(match.group(1))
+                    general_data[0] = com_number
+                else:
+                    # Default to 0 if no match found
+                    general_data[0] = 0
+        else:
+            pattern = re.compile(r'\D*(\d+)\D*')
+            match = pattern.match(COMPORT_value)
+            if match:
+                com_number = int(match.group(1))
+                general_data[0] = com_number
+            else:
+                general_data[0] = 0  # Default to 0 if no match found
+
+        # print("Port setting:", General_data[0]) #ToDo: Print
+        if platform == "Darwin" and general_data[0] == -1:
+            print("Full path mode for macOS:", COMPORT_value)
 
     def clear_error():
         buttons[3] = 1
@@ -1095,12 +1135,14 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
     def raise_frame_cart():
         app.cart_frame.tkraise() 
+        global current_menu
         current_menu = "Cart"
         logging.debug(current_menu)
         
     def raise_frame_jog():
         app.jog_frame.tkraise()
-        current_menu = "Jog"
+        global current_menu
+        current_menu= "Jog"
         logging.debug(current_menu)
 
     def wrf_button():
@@ -1119,16 +1161,16 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
     def current_position():
         app.select_custom_position.deselect()
-        global Current_Custom_pose_select
-        Current_Custom_pose_select = "Current"
-        logging.debug(Current_Custom_pose_select)
+        global current_custom_pose_select
+        current_custom_pose_select = "Current"
+        logging.debug(current_custom_pose_select)
 
 
     def custom_position():
         app.select_current_position.deselect()
-        global Current_Custom_pose_select
-        Current_Custom_pose_select = "Custom"
-        logging.debug(Current_Custom_pose_select)
+        global current_custom_pose_select
+        current_custom_pose_select = "Custom"
+        logging.debug(current_custom_pose_select)
 
     # save u neki temp file?
     def open_txt():
@@ -1226,15 +1268,15 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
 
     def select_gripper_activate():
-        global Gripper_activate_deactivate
-        Gripper_activate_deactivate  = not Gripper_activate_deactivate
-        if(Gripper_activate_deactivate == 0):
+        global gripper_activate_deactivate
+        gripper_activate_deactivate  = not gripper_activate_deactivate
+        if(gripper_activate_deactivate == 0):
             app.grip_activate_radio.deselect()
             #Buttons[4] = 0
         else:
             app.grip_activate_radio.select()
             #Buttons[4] = 1
-        logging.debug(Gripper_activate_deactivate)
+        logging.debug(gripper_activate_deactivate)
 
     def quick_gripper_button():
         global Quick_grip
@@ -1404,12 +1446,12 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
     # Use ik to calculate 
 
         # Array of current joint positions in radians
-        q1 = np.array([PAROL6_ROBOT.STEPS2RADS(position_in[0], 0),
-                       PAROL6_ROBOT.STEPS2RADS(position_in[1], 1),
-                       PAROL6_ROBOT.STEPS2RADS(position_in[2], 2),
-                       PAROL6_ROBOT.STEPS2RADS(position_in[3], 3),
-                       PAROL6_ROBOT.STEPS2RADS(position_in[4], 4),
-                       PAROL6_ROBOT.STEPS2RADS(position_in[5], 5), ])
+        q1 = np.array([step_ops.STEPS2RADS(position_in[0], 0),
+                       step_ops.STEPS2RADS(position_in[1], 1),
+                       step_ops.STEPS2RADS(position_in[2], 2),
+                       step_ops.STEPS2RADS(position_in[3], 3),
+                       step_ops.STEPS2RADS(position_in[4], 4),
+                       step_ops.STEPS2RADS(position_in[5], 5), ])
         # Get SE3 matrix of current joint positions
         T = PAROL6_ROBOT.robot.fkine(q1)
         b = T.t # get translation component
@@ -1439,12 +1481,12 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
     # Joint positions
 
-        joint1_value = str(round(PAROL6_ROBOT.STEPS2DEG(position_in[0], 0), 3))
-        joint2_value = str(round(PAROL6_ROBOT.STEPS2DEG(position_in[1], 1), 3))
-        joint3_value = str(round(PAROL6_ROBOT.STEPS2DEG(position_in[2], 2), 3))
-        joint4_value = str(round(PAROL6_ROBOT.STEPS2DEG(position_in[3], 3), 3))
-        joint5_value = str(round(PAROL6_ROBOT.STEPS2DEG(position_in[4], 4), 3))
-        joint6_value = str(round(PAROL6_ROBOT.STEPS2DEG(position_in[5], 5), 3))
+        joint1_value = str(round(step_ops.STEPS2DEG(position_in[0], 0), 3))
+        joint2_value = str(round(step_ops.STEPS2DEG(position_in[1], 1), 3))
+        joint3_value = str(round(step_ops.STEPS2DEG(position_in[2], 2), 3))
+        joint4_value = str(round(step_ops.STEPS2DEG(position_in[3], 3), 3))
+        joint5_value = str(round(step_ops.STEPS2DEG(position_in[4], 4), 3))
+        joint6_value = str(round(step_ops.STEPS2DEG(position_in[5], 5), 3))
 
 
         app.theta1.configure(text="θ1: " + joint1_value.rjust(7, ' '))
@@ -1471,8 +1513,8 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         #Jog_control[0] = v1
         #Jog_control[1] = v2
         #logging.debug(Jog_control)
-        app.Velocity_percent.configure(text= ""+ str(v1).rjust(4, ' ')+ "%")
-        app.Accel_percent.configure(text= "" + str(v2).rjust(4, ' ') + "%")
+        app.velocity_percent.configure(text= ""+ str(v1).rjust(4, ' ')+ "%")
+        app.accel_percent.configure(text= "" + str(v2).rjust(4, ' ') + "%")
 
         # Gripper stuff
         # Sliders
@@ -1492,13 +1534,13 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         app.grip_feedback_current.configure(text="Gripper current feedback is: " + str(round(gripper_data_in[3], 0)).rjust(7, ' '))
         app.grip_object_detection.configure(text="Gripper object detection is: " + str(round(gripper_data_in[4], 0)).rjust(7, ' '))
        
-        #bitfield_list = [Gripper_activate_deactivate,Gripper_action_status,InOut_in[4],Gripper_rel_dir,0,0,0,0] #InOut_in[4] is estop
-        bitfield_list = [Gripper_activate_deactivate, Gripper_action_status, not in_out_in[4], Gripper_rel_dir, 0, 0, 0, 0] #InOut_in[4] is estop
-        fused = PAROL6_ROBOT.fuse_bitfield_2_bytearray(bitfield_list)
+        #bitfield_list = [gripper_activate_deactivate,gripper_action_status,InOut_in[4],gripper_rel_dir,0,0,0,0] #InOut_in[4] is estop
+        bitfield_list = [gripper_activate_deactivate, gripper_action_status, not in_out_in[4], gripper_rel_dir, 0, 0, 0, 0] #InOut_in[4] is estop
+        fused = byte_ops.fuse_bitfield_2_bytearray(bitfield_list)
         gripper_data_out[3] = int(fused.hex(), 16)
 
-        Gripper_data_byte = PAROL6_ROBOT.split_2_bitfield(gripper_data_in[4])
-        fused_number = (Gripper_data_byte[2] << 1) | Gripper_data_byte[3]
+        gripper_data_byte = byte_ops.split_2_bitfield(gripper_data_in[4])
+        fused_number = (gripper_data_byte[2] << 1) | gripper_data_byte[3]
         if(fused_number == 0):
             app.grip_object_detection.configure(text="Gripper in motion ")
         elif(fused_number == 1):
@@ -1508,16 +1550,16 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         elif(fused_number == 3):
             app.grip_object_detection.configure(text="Gripper is at position ")
 
-        app.grip_cal_status.configure(text="Calibration status is: " + str(Gripper_data_byte[7]).rjust(7, ' '))
-        app.Error_status_grip.configure(text="Error status is: " + str(Gripper_data_byte[6]).rjust(7, ' '))
-        app.Gripper_ID.configure(text="Gripper ID is: " + str(gripper_data_out[5]))
+        app.grip_cal_status.configure(text="Calibration status is: " + str(gripper_data_byte[7]).rjust(7, ' '))
+        app.error_status_grip.configure(text="Error status is: " + str(gripper_data_byte[6]).rjust(7, ' '))
+        app.gripper_id.configure(text="Gripper ID is: " + str(gripper_data_out[5]))
 
         highlight_words_response(None)
         highlight_words_program(None)
         # If tab is joint jog
         # Update joint sliders
         for y in range(0,6):
-            app.progress_bar_joints[y].set(np.interp(position_in[y], [PAROL6_ROBOT.Joint_limits_steps[y][0], PAROL6_ROBOT.Joint_limits_steps[y][1]], [0.0, 1.0]))
+            app.progress_bar_joints[y].set(np.interp(position_in[y], [step_ops.joint_limits_steps[y][0], step_ops.joint_limits_steps[y][1]], [0.0, 1.0]))
             None
     
         app.after(66,update) # Update data every 66 ms ( 15 frames per second)

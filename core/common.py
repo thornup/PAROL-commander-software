@@ -1,3 +1,4 @@
+import serial
 from core.byte_operations import *
 from core.unpack import unpack_data
 
@@ -21,41 +22,30 @@ from core.unpack import unpack_data
 # Whole string is packed in one list of data
 
 
-my_os = platform.system()
-if my_os == "Windows":
-    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
-    logging.debug("Os is Windows")
-else:
-    image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)))
-    logging.debug("Os is Linux")
-
+platform = platform.system()
+image_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', "gui/images")
+def get_platform_serial():
+    platform_serial = serial.Serial()
+    if platform == "Windows":
+        platform_serial = serial.Serial(port='COM3', baudrate=3000000, timeout=0)
+    elif platform == "Darwin":
+        logging.debug("Darwin")
+        # port = "/dev/tty.usbmodem0",
+        platform_serial = serial.Serial( baudrate=3000000, timeout=0) #ToDo: check
+    else:
+        platform_serial.port = '/dev/ttyACM0'
+    return platform_serial
 
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
 )
 
-if my_os == "Windows":
-    STARTING_PORT = 3 # COM3
-else:
-    STARTING_PORT = 0
 # if using linux this will add /dev/ttyACM + 0 ---> /dev/ttyACM0
 # if using windows this will add COM + 3 ---> COM3
 str_port = ''
 logging.disable(logging.DEBUG)
-if my_os == "Windows":
-    try:
-        str_port = 'COM' + str(STARTING_PORT)
-        ser = serial.Serial(port=str_port, baudrate=3000000, timeout=0)
-    except:
-        ser = serial.Serial()
-elif my_os == "Linux":
-    try:
-        str_port = '/dev/ttyACM' + str(STARTING_PORT)
-        ser = serial.Serial(port=str_port, baudrate=3000000, timeout=0)
-    except:
-        ser = serial.Serial()
-#ser.open()
+
 
 # in big endian machines, first byte of binary representation of the multibyte data-type is stored first.
 int_to_3_bytes = struct.Struct('>I').pack # BIG endian order
