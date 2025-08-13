@@ -46,7 +46,7 @@ if __name__ == '__main__':
                                                                 joint_jog_buttons, cart_jog_buttons, jog_control, general_data, buttons, ])
 
     sim_process = multiprocessing.Process(target=run_sim, args =[Position_out, Position_in, Position_Sim, Buttons])
-   process3 = multiprocessing.Process(target=SIMULATOR_process(),args =[Position_out,Position_in,Position_Sim,Buttons])
+    process3 = multiprocessing.Process(target=SIMULATOR_process(),args =[Position_out,Position_in,Position_Sim,Buttons])
 
 
     core_process.start()
