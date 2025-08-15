@@ -2,6 +2,9 @@ import tkinter
 import tkinter.messagebox
 import customtkinter
 import matplotlib
+from core.common import platform, image_path
+if platform == "Darwin":
+    matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import time
 import roboticstoolbox as rp
@@ -28,11 +31,7 @@ import re
 import config.robot_config as PAROL6_ROBOT
 import core.step_operations as step_ops
 import core.byte_operations as byte_ops
-from core.common import platform, image_path
 from io_data import *
-if platform == "Darwin":
-    print("EFEFEF")
-    matplotlib.use("TkAgg")
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
@@ -42,7 +41,7 @@ logging.basicConfig(level = logging.DEBUG,
 text_size = 14
 
 # Globals
-current_menu = "Jog"
+# current_menu = "Jog"
 wrf_trf = "TRF"
 current_custom_pose_select = "Current"
 Robot_sim = True
@@ -87,8 +86,6 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
             position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error, timing_data_in,
             xtr_data, gripper_data_in,
             joint_jog_buttons, cart_jog_buttons, jog_control, general_data, buttons):
-    
-
 
     app = customtkinter.CTk()
     shared_string.value = b'PAROL6 commander v1.0'
@@ -101,7 +98,8 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
     # app.attributes('-topmost',False)
     app.lift()
     app.focus_force()
-    # Add app icon  
+    # Add app icon
+    print("OOOOOO")
     if platform == "Windows":
         logo = (os.path.join(image_path, "logo.ico"))
         app.iconbitmap(logo)
@@ -113,7 +111,7 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
     app.grid_rowconfigure((0,3,2), weight=0)
     app.grid_rowconfigure((1), weight=1) 
     app.grid_rowconfigure((4), weight=0) 
-    
+    print("OOOOOO")
     #images
 
     # dodaj plot koji je popup, dodaj help button, I/O je isto popup zasad i tamo je i gripper
@@ -183,6 +181,7 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
         # Add a helpful label for macOS users
         if platform == "Darwin":
+            print("BBBBBBBBBB")
             app.COMPORT_label = customtkinter.CTkLabel(app.bottom_select_frame,
                                                        text="Port (e.g., /dev/tty.usbmodem*)",
                                                        font=customtkinter.CTkFont(size=10))
@@ -1097,6 +1096,7 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
 
         # For macOS, allow full port paths
         if platform == "Darwin":
+            print("EEEEEEEEEEEE")
             # If input looks like a full path, store it as a string in General_data[2]
             if COMPORT_value.startswith('/dev/'):
                 # Store the full path in a new General_data index for macOS
@@ -1117,6 +1117,7 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
                     # Default to 0 if no match found
                     general_data[0] = 0
         else:
+            print("AAAAAAAAAAAAAAA")
             pattern = re.compile(r'\D*(\d+)\D*')
             match = pattern.match(COMPORT_value)
             if match:
@@ -1403,9 +1404,9 @@ def run_gui(shared_string, position_out, speed_out, command_out, affected_joint_
         #logging.debug("test")
         global prev_string_shared
 
-        global x_value 
-        global y_value 
-        global z_value 
+        global x_value
+        global y_value
+        global z_value
         global rx_pos
         global ry_pos
         global rz_pos
@@ -1650,6 +1651,10 @@ if __name__ == "__main__":
     buttons = [0, 0, 0, 0, 1, 1, 0, 0, 0]
     
     shared_string = multiprocessing.Array('c', b' ' * 100)
+    # shared_string, position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out, gripper_data_out,
+    # position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error, timing_data_in,
+    # xtr_data, gripper_data_in,
+    # joint_jog_buttons, cart_jog_buttons, jog_control, general_data, buttons,])
 
     run_gui(shared_string, position_out, speed_out, command_out, affected_joint_out, in_out_out, timeout_out, gripper_data_out,
             position_in, speed_in, homed_in, in_out_in, temperature_error_in, position_error_in, timeout_error, timing_data_in,

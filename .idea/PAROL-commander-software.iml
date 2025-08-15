@@ -3,8 +3,9 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv_10" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.9 (PAROL-commander-software)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.10 (PAROL-commander-software)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PyDocumentationSettings">

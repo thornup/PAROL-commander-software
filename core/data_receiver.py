@@ -1,25 +1,6 @@
-import threading
-import multiprocessing
-import serial
 import time
-from spatialmath import *
 import platform
-import os
-import re
-from oclock import Timer, loop, interactiveloop
-import numpy as np
-import math, random
-import roboticstoolbox as rp
-from roboticstoolbox import trapezoidal
-from roboticstoolbox import quintic
-from spatialmath.base.argcheck import (
-    isvector,
-    getvector,
-    # assertmatrix,
-    getvector,
-    isscalar,
-)
-import struct
+
 import logging
 import serial as ser
 

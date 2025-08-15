@@ -17,7 +17,7 @@ timeout_out = multiprocessing.Value('i', 0)
 gripper_data_out = multiprocessing.Array("i", [1, 1, 1, 1, 0, 0], lock=False)
 
 # Data sent from robot to PC
-Position_in = multiprocessing.Array("i", [31, 32, 33, 34, 35, 36], lock=False)
+position_in = multiprocessing.Array("i", [31, 32, 33, 34, 35, 36], lock=False)
 speed_in = multiprocessing.Array("i", [41, 42, 43, 44, 45, 46], lock=False)
 homed_in = multiprocessing.Array("i", [1, 1, 1, 1, 1, 1, 1, 1], lock=False)
 in_out_in = multiprocessing.Array("i", [1, 1, 1, 1, 1, 1, 1, 1], lock=False)  # IN1,IN2,OUT1,OUT2,ESTOP

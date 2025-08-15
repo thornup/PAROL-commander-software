@@ -1,12 +1,16 @@
+import matplotlib
+from core.common import platform, image_path
+
+if platform == "Darwin":
+    matplotlib.use("TkAgg")
 import tkinter
 import tkinter.messagebox
 import customtkinter
 import matplotlib.pyplot as plt
-import matplotlib
 import time
 import roboticstoolbox as rp
 import numpy as np
-import platform
+# import platform
 import os
 import PIL
 from PIL import Image, ImageTk
@@ -22,8 +26,7 @@ import numpy as np
 from math import pi
 import config.robot_config as config
 import core.step_operations as step_ops
-if platform == "Darwin":
-    matplotlib.use("TkAgg")
+
 logging.basicConfig(level = logging.DEBUG,
     format='%(asctime)s.%(msecs)03d %(levelname)s:\t%(message)s',
     datefmt='%H:%M:%S'
